@@ -1,5 +1,9 @@
 node_modules/
 dist/
+.vite/
+apps/*/dist/
+apps/desktop/release/
+apps/desktop/node_modules/
 .env
 config/local.yaml
 data/*.db
@@ -10,3 +14,5 @@ data/secrets/
 services/kokoro-tts/vendor/
 services/kokoro-tts/models/*.onnx
 services/kokoro-tts/models/*.bin
+**/__pycache__/
+*.pyc

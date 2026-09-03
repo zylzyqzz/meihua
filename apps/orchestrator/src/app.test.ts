@@ -59,6 +59,7 @@ describe('orchestrator HTTP API', () => {
     const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
     const app = await createApp(runtime);
     cleanups.push(async () => { await app.close(); runtime.close(); });
+    await app.inject({ method: 'POST', url: '/api/sessions/start', payload: { mode: 'REHEARSAL' } });
     const internals = runtime as unknown as { enqueueTikfinityEvent: (kind: 'gift', event: Parameters<LiveRuntime['ingestGift']>[0]) => Promise<void> };
     await internals.enqueueTikfinityEvent('gift', {
       source: 'tikfinity', eventId: 'catalog-gift-1', userId: 'catalog-user', username: 'CatalogViewer',
@@ -84,20 +85,20 @@ describe('orchestrator HTTP API', () => {
     const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
     const app = await createApp(runtime);
     cleanups.push(async () => { await app.close(); runtime.close(); });
-    expect((await app.inject({ method: 'GET', url: '/api/presentation' })).json()).toMatchObject({ mode: 'VIDEO_LOOP', fallbackPolicy: 'VIDEO', profiles: [] });
+    expect((await app.inject({ method: 'GET', url: '/api/presentation' })).json()).toMatchObject({ mode: 'VIDEO_ONCE', fallbackPolicy: 'VIDEO', profiles: [] });
     expect((await app.inject({ method: 'PUT', url: '/api/presentation/settings', payload: { mode: 'AUDIO_ONLY' } })).json()).toMatchObject({ mode: 'AUDIO_ONLY' });
     expect((await app.inject({ method: 'GET', url: '/api/presentation/preflight' })).json()).toMatchObject({ mode: 'AUDIO_ONLY', ready: true });
     const invalid = await app.inject({ method: 'POST', url: '/api/presentation/videos', payload: { name: 'Missing video', assetId: 'missing-asset' } });
     expect(invalid.statusCode).toBe(422);
   });
 
-  it('exposes Alibaba defaults for voice cloning and digital-human API configuration', async () => {
+  it('exposes DeepSeek production defaults alongside Alibaba voice cloning and digital-human configuration', async () => {
     const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
     const app = await createApp(runtime);
     cleanups.push(async () => { await app.close(); runtime.close(); });
     const initial = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(initial.json().providers).toMatchObject({
-      llm: { adapter: 'openai-compatible', model: 'qwen-plus', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+      llm: { adapter: 'openai-compatible', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com' },
       tts: { voiceCloneApi: { provider: 'aliyun', model: 'qwen-voice-enrollment', targetModel: 'qwen3.5-omni-plus' } },
       avatar: { cloneApi: { provider: 'aliyun', model: 'StartInstance', baseUrl: 'https://avatar.cn-zhangjiakou.aliyuncs.com' } },
     });

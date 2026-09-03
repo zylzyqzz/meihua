@@ -250,3 +250,6 @@ Copy-Item (Join-Path $ProjectRoot 'docs\VOICE-DIGITAL-HUMAN-API.md') (Join-Path 
 $size = (Get-ChildItem $bundle -Recurse | Measure-Object Length -Sum).Sum / 1GB
 Write-Host ("Bundle ready: {0} ({1:N1} GB)" -f $bundle, $size) -ForegroundColor Green
 Write-Host "可选：Compress-Archive 或用 7z 打包 MeihuaStudio 目录分发给直播机。"
+# Robocopy returns 1 when files were copied successfully.  Do not leak that
+# success code as a failed release after every payload check has passed.
+exit 0

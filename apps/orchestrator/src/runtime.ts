@@ -119,8 +119,10 @@ export const defaultSettings: AppSettings = {
     expireMinutes: 20,
     dedupeWindowSeconds: 10,
   },
-  moderation: { minChars: 1, maxChars: 120, treatAnyCommentAsQuestion: true, llmTimeoutMs: 2_000 },
-  reading: { speechTargetSeconds: 28, watchdogMs: 45_000, externalRetryCount: 1 },
+  // A production reading starts from a real question.  Greetings, emoji,
+  // compliments, and arbitrary chat must never consume the formal queue.
+  moderation: { minChars: 4, maxChars: 280, treatAnyCommentAsQuestion: false, llmTimeoutMs: 12_000 },
+  reading: { speechTargetSeconds: 30, watchdogMs: 300_000, externalRetryCount: 2 },
   meihua: { engine: 'MINGYU_CORE' },
   gifts: {
     enabled: true,
@@ -138,7 +140,9 @@ export const defaultSettings: AppSettings = {
     obsRankingLimit: 5,
     adminRankingLimit: 20,
     likeRules: [{ id: 'likes-100', enabled: true, label: '累计点赞 100 次', threshold: 100, priority: 'NORMAL', speechTargetSeconds: 28, grantExpireMinutes: 30, cooldownMinutes: 30 }],
-    commentRules: [{ id: 'comment-reading', enabled: true, label: '评论提问自动排队（中英文）', keywords: [...defaultCommentKeywords], matchMode: 'CONTAINS', stripKeyword: true, priority: 'NORMAL', speechTargetSeconds: 28, queueExpireMinutes: 20, cooldownMinutes: 10 }],
+    // Keywords can grant a viewer the right to ask next. A formal reading is
+    // still created only after question moderation accepts a clear question.
+    commentRules: [{ id: 'comment-reading', enabled: true, label: '请求测算资格（中英文）', keywords: ['测算', '测一卦', '算一卦', '起卦', '占卜', '解卦', '问卦', '梅花易数', '帮我算', '帮我测', '请测', '想测', 'reading', 'fortune', 'divination', 'hexagram', 'meihua', 'read me'], matchMode: 'CONTAINS', stripKeyword: true, priority: 'NORMAL', speechTargetSeconds: 30, queueExpireMinutes: 20, cooldownMinutes: 10 }],
   },
   overlay: {
     disclaimer: 'Traditional cultural entertainment only. Not professional advice.',
@@ -158,10 +162,10 @@ export const defaultSettings: AppSettings = {
   },
   providers: {
     liveInput: { adapter: 'tikfinity', url: 'ws://127.0.0.1:21213/' },
-    llm: { adapter: 'openai-compatible', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', apiKeyEnv: 'DASHSCOPE_API_KEY' },
+    llm: { adapter: 'openai-compatible', baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKeyEnv: 'DEEPSEEK_API_KEY' },
     tts: {
-      adapter: 'windows', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini-tts',
-      voiceId: 'Microsoft Zira Desktop', speed: 1, instructions: 'Warm, calm and measured. Speak naturally with clear pauses.',
+      adapter: 'kokoro', baseUrl: 'http://127.0.0.1:9890', model: 'kokoro-v1.0.onnx',
+      voiceId: 'af_heart', speed: 1, instructions: 'Warm, calm and measured. Speak naturally with clear pauses.',
       apiKeyEnv: 'TTS_API_KEY', reuseLlmKey: true,
       stability: 0.5, similarityBoost: 0.75, style: 0, speakerBoost: true,
       gptsovits: { baseUrl: 'http://127.0.0.1:9881', apiVersion: 'V3', voices: [] },
@@ -201,7 +205,9 @@ export const defaultSettings: AppSettings = {
       baidu: { baseUrl: 'https://open.xiling.baidu.com', appId: '', accessTokenConfigured: false },
     },
     avatar: {
-      adapter: 'local-vrm', url: 'http://127.0.0.1:3210', activeProfileId: undefined, profiles: [],
+      // Video presentation is the production default.  VRM remains an
+      // explicit development option and can never become a hidden fallback.
+      adapter: 'none', url: 'http://127.0.0.1:3210', activeProfileId: undefined, profiles: [],
       cloneApi: {
         provider: 'aliyun',
         baseUrl: 'https://avatar.cn-zhangjiakou.aliyuncs.com',
@@ -235,7 +241,7 @@ export const defaultSettings: AppSettings = {
     sampleRate: 48_000,
   },
   presentation: {
-    mode: 'VIDEO_LOOP',
+    mode: 'VIDEO_ONCE',
     profiles: [],
     fallbackPolicy: 'VIDEO',
   },
@@ -384,7 +390,14 @@ function normalizeCommentRules(value: unknown): CommentRule[] {
   const legacyKeywords = ['reading', 'fortune', '测算', '占卜'].sort();
   const looksLikeTestRule = value.length === 1 && storedKeywords.length === 1 && storedKeywords[0] === 'a'
     && (first?.id === 'any-comment' || first?.label === '任意评论');
-  if ((value.length === 1 && storedKeywords.length === legacyKeywords.length && [...storedKeywords].sort().join('|') === legacyKeywords.join('|')) || looksLikeTestRule) {
+  // Broad interrogation words and a bare question mark were temporarily used
+  // as automatic queue keywords. They match ordinary chat and must be
+  // replaced during migration with the explicit eligibility vocabulary.
+  const hasUnsafeBroadKeyword = storedKeywords.some((keyword) => [
+    'a', '?', '？', 'what', 'when', 'where', 'why', 'how', 'should i', 'can i',
+    'will i', 'is it', 'question', 'job', 'work', 'money', 'love', 'career',
+  ].includes(keyword));
+  if ((value.length === 1 && storedKeywords.length === legacyKeywords.length && [...storedKeywords].sort().join('|') === legacyKeywords.join('|')) || looksLikeTestRule || hasUnsafeBroadKeyword) {
     return defaultSettings.engagement.commentRules;
   }
   return value.slice(0, 30).flatMap((raw, index) => {
@@ -477,6 +490,15 @@ function localeToContentLanguage(locale: VoiceTargetLocale): AppSettings['overla
   if (locale.startsWith('es-')) return 'es';
   if (locale.startsWith('fr-')) return 'fr';
   return 'en';
+}
+
+function contentLanguageToVoiceLocale(language: AppSettings['overlay']['contentLanguage']): VoiceTargetLocale {
+  if (language === 'en') return 'en-US';
+  if (language === 'ja') return 'ja-JP';
+  if (language === 'ko') return 'ko-KR';
+  if (language === 'es') return 'es-ES';
+  if (language === 'fr') return 'fr-FR';
+  return 'zh-CN';
 }
 
 const supportedProfileLanguages = new Set(['en', 'zh-CN', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru', 'yue', 'ar']);
@@ -747,7 +769,7 @@ function normalizeSettings(input: AppSettingsPatch): AppSettings {
     })
     : [];
   const validPresentationProfileIds = new Set(presentationProfiles.map((profile) => profile.id));
-  const presentationMode: PresentationMode = presentationInput.mode === 'VIDEO_ONCE' || presentationInput.mode === 'DIGITAL_HUMAN' || presentationInput.mode === 'AUDIO_ONLY' ? presentationInput.mode : 'VIDEO_LOOP';
+  const presentationMode: PresentationMode = presentationInput.mode === 'VIDEO_LOOP' || presentationInput.mode === 'DIGITAL_HUMAN' || presentationInput.mode === 'AUDIO_ONLY' ? presentationInput.mode : 'VIDEO_ONCE';
   const presentation: PresentationSettings = {
     mode: presentationMode,
     profiles: presentationProfiles,
@@ -764,7 +786,9 @@ function normalizeSettings(input: AppSettingsPatch): AppSettings {
       dedupeWindowSeconds: clamp(queue.dedupeWindowSeconds, defaultSettings.queue.dedupeWindowSeconds, 1, 120),
     },
     moderation: {
-      treatAnyCommentAsQuestion: moderation.treatAnyCommentAsQuestion !== false,
+      // Retire the experimental any-comment intake switch. Persisted values
+      // are intentionally migrated to false so production cannot regress.
+      treatAnyCommentAsQuestion: false,
       minChars: clamp(moderation.minChars, defaultSettings.moderation.minChars, 1, 40),
       maxChars: clamp(moderation.maxChars, defaultSettings.moderation.maxChars, 20, 500),
       llmTimeoutMs: clamp(moderation.llmTimeoutMs, defaultSettings.moderation.llmTimeoutMs, 250, 20_000),
@@ -1184,6 +1208,7 @@ export class LiveRuntime {
     this.museTalkAvatarProvider = new MuseTalkAvatarAdapter({ baseUrl: defaultSettings.providers.avatar.url, fetcher: options.museTalkFetcher });
     this.initialSettings = normalizeSettings(options.initialSettings ?? defaultSettings);
     this.settings = normalizeSettings(this.persistence.getSetting('settings', this.initialSettings));
+    this.applyProductionDefaultsOnce();
     this.seedDevelopmentDigitalHumanProfiles();
     this.seedDefaultPresentationProfile();
     this.digitalHumanPresets = this.persistence.getSetting<DigitalHumanPreset[]>('digital-human-presets', []);
@@ -1365,6 +1390,39 @@ export class LiveRuntime {
     return this.settings;
   }
 
+  /**
+   * One-time migration from the fragmented test-era defaults. It deliberately
+   * preserves credentials, uploaded media, cloned voices, and every later
+   * operator choice; only the first production recovery boot receives the
+   * safe, verified default chain.
+   */
+  private applyProductionDefaultsOnce(): void {
+    if (this.persistence.getSetting<boolean>('production-policy-v1', false)) return;
+    this.settings = normalizeSettings({
+      ...this.settings,
+      moderation: { ...this.settings.moderation, minChars: 4, maxChars: 280, treatAnyCommentAsQuestion: false, llmTimeoutMs: 12_000 },
+      reading: { ...this.settings.reading, speechTargetSeconds: 30, watchdogMs: Math.max(this.settings.reading.watchdogMs, 300_000), externalRetryCount: Math.max(this.settings.reading.externalRetryCount, 2) },
+      providers: {
+        ...this.settings.providers,
+        tts: {
+          ...this.settings.providers.tts,
+          adapter: 'kokoro', baseUrl: 'http://127.0.0.1:9890', model: 'kokoro-v1.0.onnx', voiceId: 'af_heart',
+          activeVoiceProfileId: undefined, reuseLlmKey: false,
+          kokoro: { ...this.settings.providers.tts.kokoro, baseUrl: 'http://127.0.0.1:9890', defaultVoice: 'af_heart' },
+        },
+        avatar: { ...this.settings.providers.avatar, adapter: 'none', activeProfileId: undefined },
+      },
+      presentation: { ...this.settings.presentation, mode: 'VIDEO_ONCE', fallbackPolicy: 'VIDEO' },
+    });
+    this.persistence.setSetting('settings', this.settings);
+    this.persistence.setSetting('production-policy-v1', true);
+    this.persistence.recordEvent('PRODUCTION_DEFAULTS_APPLIED', {
+      language: this.settings.overlay.contentLanguage,
+      tts: this.settings.providers.tts.voiceId,
+      presentation: this.settings.presentation.mode,
+    });
+  }
+
   /** Exposed to the desktop diagnostics so operators see the selected safe profile. */
   getGpuRuntimeProfile(): GpuRuntimeProfile & { queue: ReturnType<GpuTaskCoordinator['getState']> } {
     return { ...this.gpuRuntimeProfile, queue: this.gpuTaskCoordinator.getState() };
@@ -1529,17 +1587,10 @@ export class LiveRuntime {
       apiKey: this.resolveSecret('llm').value ?? '',
       timeoutMs: Math.max(5_000, this.settings.moderation.llmTimeoutMs * 5),
     });
-    // LLM 失败（key 失效/超时/格式错误）自动落回本地规则模板：直播管线绝不因话术层中断
-    return {
-      compose: async (input) => {
-        try {
-          return await external.compose(input);
-        } catch (error) {
-          this.persistence.recordEvent('LLM_FALLBACK_TO_LOCAL', { reason: error instanceof Error ? error.message.slice(0, 300) : 'unknown' });
-          return this.localAnswerComposer.compose(input);
-        }
-      },
-    };
+    // In production an external model is a required stage, not cosmetic
+    // polish.  A failed or invalid DeepSeek response must retry/pause the
+    // reading instead of silently speaking a generic local template.
+    return external;
   }
 
   private getTtsAdapter(): TtsAdapter {
@@ -2282,7 +2333,7 @@ export class LiveRuntime {
     try {
       const validated = this.validatePresentationVideoAsset(source.id);
       const now = Date.now();
-      const profile: VideoPresentationProfile = { id: randomUUID(), name: '默认预录人物视频', assetId: source.id, status: 'READY', playback: 'LOOP', fit: 'COVER', durationMs: validated.durationMs, createdAt: now, updatedAt: now };
+      const profile: VideoPresentationProfile = { id: randomUUID(), name: '默认预录人物视频', assetId: source.id, status: 'READY', playback: 'ONCE', fit: 'COVER', durationMs: validated.durationMs, createdAt: now, updatedAt: now };
       this.settings = normalizeSettings({ ...this.settings, presentation: { ...this.settings.presentation, profiles: [profile], activeVideoProfileId: profile.id, fallbackVideoProfileId: profile.id } });
       this.persistence.recordEvent('DEFAULT_PRESENTATION_VIDEO_SEEDED', { profileId: profile.id, assetId: source.id });
     } catch (error) {
@@ -2306,41 +2357,33 @@ export class LiveRuntime {
   private resolveVoiceSelectionSnapshot(): VoiceSelectionSnapshot {
     const settings = this.settings.providers.tts;
     const active = this.getActiveVoiceProfile();
-    const sourceLanguage = active?.language && active.language !== 'ar' ? active.language : this.settings.overlay.contentLanguage;
-    const language: AppSettings['overlay']['contentLanguage'] = sourceLanguage === 'yue' ? 'zh-CN' : sourceLanguage;
-    const targetLocale = active?.targetLocale ?? this.getVoiceTargetLocale();
+    // Reference/sample language is never the broadcast language.  The
+    // operator's target language is authoritative for both preview and live.
+    const language = this.settings.overlay.contentLanguage;
+    const targetLocale = contentLanguageToVoiceLocale(language);
+    const profileMatchesTarget = !active?.targetLocale || localeToContentLanguage(active.targetLocale) === language;
     return {
       voiceProfileId: active?.id ?? settings.activeVoiceProfileId ?? settings.voiceId,
       voiceId: active?.voiceId ?? settings.voiceId,
       contentLanguage: language,
       targetLocale,
-      targetCountry: active?.targetCountry,
-      accentProfileId: active?.accentProfileId,
+      targetCountry: profileMatchesTarget ? active?.targetCountry : undefined,
+      accentProfileId: profileMatchesTarget ? active?.accentProfileId : undefined,
       sourceLanguage: active?.sourceLanguage,
       speed: active?.speed ?? settings.speed,
     };
   }
 
   private getContentLanguage() {
-    const profile = this.getActiveVoiceProfile();
-    if (profile?.language === 'yue') return 'zh-CN' as const;
-    return profile?.language && profile.language !== 'ar' ? profile.language : this.settings.overlay.contentLanguage;
+    return this.settings.overlay.contentLanguage;
   }
 
   private getVoiceLanguage() {
-    const profile = this.getActiveVoiceProfile();
-    return profile?.language && profile.language !== 'ar' ? profile.language : this.settings.overlay.contentLanguage;
+    return this.settings.overlay.contentLanguage;
   }
 
   private getVoiceTargetLocale(): VoiceTargetLocale {
-    const profile = this.getActiveVoiceProfile();
-    if (profile?.targetLocale) return profile.targetLocale;
-    const language = profile?.language && profile.language !== 'ar' ? profile.language : this.settings.overlay.contentLanguage;
-    if (language === 'en') return 'en-US';
-    if (language === 'ja') return 'ja-JP';
-    if (language === 'ko') return 'ko-KR';
-    if (language === 'yue') return 'yue-HK';
-    return 'zh-CN';
+    return contentLanguageToVoiceLocale(this.settings.overlay.contentLanguage);
   }
 
   private getAccentSettings(): NonNullable<AppSettings['providers']['tts']['accent']> {
@@ -4573,25 +4616,24 @@ export class LiveRuntime {
       return undefined;
     }
 
-    if (commentRule && commentMatch?.question) {
-      const question = commentMatch.question;
-      const moderation = moderateQuestion(question, this.settings.moderation);
-      if (moderation.decision !== 'ALLOW') {
-        this.createCommentQualification(event, commentRule, key);
-        this.persistence.recordEvent('COMMENT_KEYWORD_WAITING_FOR_QUESTION', { eventId: event.eventId, username: event.username, reason: moderation.reason });
-        return undefined;
-      }
+    // A clear question is sufficient on its own.  Keyword rules are only an
+    // entitlement convenience for viewers who first type "reading" and ask
+    // their question in a later comment; they must not gate real questions.
+    const directQuestion = commentMatch?.question ?? event.message;
+    const directModeration = moderateQuestion(directQuestion, this.settings.moderation);
+    if (directModeration.decision === 'ALLOW') {
       const existed = this.persistence.getReadingBySourceEventId(event.source, event.eventId);
-      const reading = await this.ingest({ ...event, message: question }, commentRule.priority, {
-        qualification: { kind: 'COMMENT_KEYWORD', ruleId: commentRule.id, label: commentRule.label },
+      const reading = await this.ingest({ ...event, message: directQuestion }, commentRule?.priority ?? 'NORMAL', {
+        qualification: { kind: 'COMMENT_KEYWORD', ruleId: commentRule?.id ?? 'clear-question', label: commentRule?.label ?? '明确提问' },
         queueExpireMinutes: this.settings.queue.expireMinutes,
-        speechTargetSeconds: commentRule.speechTargetSeconds,
+        speechTargetSeconds: commentRule?.speechTargetSeconds ?? this.settings.reading.speechTargetSeconds,
       });
       if (!existed && reading.status === 'QUEUED') this.addEngagementStats(event, 0, 1);
       return reading;
     }
 
     if (commentRule) {
+      this.persistence.recordEvent('COMMENT_KEYWORD_WAITING_FOR_QUESTION', { eventId: event.eventId, username: event.username, reason: directModeration.reason });
       this.createCommentQualification(event, commentRule, key);
       return undefined;
     }
@@ -5677,6 +5719,9 @@ export class LiveRuntime {
       readingId, targetMs, actualMs: best.durationMs, errorMs: best.durationMs - targetMs,
       speed: requestedSpeed, targetMet: Math.abs(best.durationMs - targetMs) <= toleranceMs,
     }, this.currentSession?.sessionId);
+    if (Math.abs(best.durationMs - targetMs) > toleranceMs) {
+      throw new Error(`TTS_DURATION_TARGET_NOT_MET:${best.durationMs}:${targetMs}`);
+    }
     return withDurationQuality(best, requestedSpeed);
   }
 

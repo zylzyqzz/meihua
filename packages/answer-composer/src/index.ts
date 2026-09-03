@@ -632,12 +632,63 @@ export class RuleBasedAnswerComposer implements AnswerComposer {
 /**
  * The live voice must start with the calculated result and contain no hidden
  * greeting, question echo, or disclaimer.  If a remote model returns a
- * padded response, the caller falls back to the same deterministic composer.
+ * padded response, the production pipeline rejects it and retries instead of
+ * replacing the reading with a generic local template.
  */
 function isDirectSpokenAnswer(answer: AnswerContent, input: AnswerComposerInput, language: ContentLanguage): boolean {
   if (answer.opening.trim() || answer.closing.trim()) return false;
   const primary = formatHexagramDisplayName(input.result.primary.number, input.result.primary.name, language);
-  return answer.speech.trim().startsWith(primary);
+  // Providers commonly vary the separator after the number ("·", colon,
+  // dash, or parentheses). Require the exact calculated hexagram number at
+  // the beginning while allowing that harmless spoken-format variation.
+  const numberedPrefix = primary.split('·')[0]?.trim() ?? primary;
+  return answer.speech.trim().startsWith(primary) || answer.speech.trim().startsWith(numberedPrefix);
+}
+
+function normalizeProviderAnswer(value: unknown, targetSeconds: number): AnswerContent {
+  if (!value || typeof value !== 'object') throw new InvalidAnswerContentError('LLM_RESPONSE_NOT_AN_OBJECT');
+  const candidate = value as Partial<AnswerContent>;
+  if (typeof candidate.speech !== 'string' || !candidate.speech.trim()) throw new InvalidAnswerContentError('LLM_RESPONSE_SPEECH_MISSING');
+  return {
+    // The broadcast has a single direct spoken field. Provider greetings,
+    // closings and loose keyword shapes never control the live output.
+    opening: '',
+    speech: candidate.speech.trim(),
+    keywords: Array.isArray(candidate.keywords)
+      ? candidate.keywords.filter((keyword): keyword is string => typeof keyword === 'string').map((keyword) => keyword.trim().slice(0, 32)).filter(Boolean).slice(0, 5)
+      : [],
+    closing: '',
+    estimatedSeconds: targetSeconds,
+  };
+}
+
+function normalizeDirectSpokenAnswer(answer: AnswerContent, input: AnswerComposerInput, language: ContentLanguage): AnswerContent {
+  const speech = answer.speech.trim().replace(/^(?:#{1,6}|\*{1,2})\s*/, '');
+  const normalized = { ...answer, speech };
+  if (isDirectSpokenAnswer(normalized, input, language)) return normalized;
+  // The cast result is deterministic. When a compatible provider adds a
+  // harmless label such as "Conclusion:", put the calculated name first so
+  // the broadcast stays direct without asking the model to recast anything.
+  const primary = formatHexagramDisplayName(input.result.primary.number, input.result.primary.name, language);
+  return { ...normalized, speech: `${primary}. ${speech}` };
+}
+
+function trimAnswerToMaximum(answer: AnswerContent, language: ContentLanguage, targetSeconds: number, speechRate?: number): AnswerContent {
+  const target = estimateSpeechLengthTarget(language, targetSeconds, speechRate);
+  if (countSpeechUnits(`${answer.opening}${answer.speech}${answer.closing}`, language) <= target.maximum) return answer;
+  if (language === 'zh-CN') {
+    return { ...answer, speech: Array.from(answer.speech).slice(0, Math.max(1, target.maximum)).join('').trimEnd() };
+  }
+  const sentences = answer.speech.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const selected: string[] = [];
+  for (const sentence of sentences) {
+    const candidate = [...selected, sentence].join(' ');
+    if (countSpeechUnits(`${answer.opening}${candidate}${answer.closing}`, language) > target.maximum) break;
+    selected.push(sentence);
+  }
+  if (selected.length) return { ...answer, speech: selected.join(' ') };
+  const words = answer.speech.trim().split(/\s+/).filter(Boolean);
+  return { ...answer, speech: words.slice(0, Math.max(1, target.maximum)).join(' ') };
 }
 
 export type OpenAICompatibleComposerOptions = {
@@ -653,6 +704,17 @@ function chatCompletionsUrl(baseUrl: string): string {
   if (!value) throw new Error('LLM_BASE_URL_REQUIRED');
   if (/\/chat\/completions$/i.test(value)) return value;
   return `${value}/chat/completions`;
+}
+
+// DeepSeek supports JSON-object mode but not OpenAI's json_schema response
+// format. The response still goes through the same local schema, factual and
+// duration checks below, so this is a transport compatibility change only.
+function supportsJsonSchemaResponseFormat(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).hostname.toLocaleLowerCase() !== 'api.deepseek.com';
+  } catch {
+    return true;
+  }
 }
 
 function readJsonContent(content: unknown): unknown {
@@ -686,6 +748,23 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
     const language = input.language ?? 'en';
     const lengthTarget = estimateSpeechLengthTarget(language, targetSeconds, input.speechRate);
     const conclusion = concludeReading({ result: input.result, language, category: input.category });
+    const responseFormat = supportsJsonSchemaResponseFormat(this.options.baseUrl)
+      ? {
+        type: 'json_schema' as const,
+        json_schema: {
+          name: 'meihua_answer', strict: true,
+          schema: {
+            type: 'object', additionalProperties: false,
+            properties: {
+              opening: { type: 'string' }, speech: { type: 'string' },
+              keywords: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 32 } },
+              closing: { type: 'string' }, estimatedSeconds: { type: 'integer', minimum: 1, maximum: 120 },
+            },
+            required: ['opening', 'speech', 'keywords', 'closing', 'estimatedSeconds'],
+          },
+        },
+      }
+      : { type: 'json_object' as const };
     const response = await this.fetcher(chatCompletionsUrl(this.options.baseUrl), {
       method: 'POST',
       headers: { authorization: `Bearer ${this.options.apiKey}`, 'content-type': 'application/json' },
@@ -706,7 +785,7 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
               '5. Style: natural spoken language, concise and decisive. English should still feel like natural spoken US TikTok delivery; Spanish should feel natural for Latin American audiences. Every claim must remain traceable to the supplied conclusion.',
               '6. The combined opening + speech + closing MUST stay inside the supplied lengthTarget minimum and maximum (words or characters per unit); do not count punctuation.',
               '7. Set estimatedSeconds exactly to targetSeconds; the audio pipeline will use that value for the final duration.',
-              '8. Return only JSON matching the schema.',
+              '8. Return only a JSON object with exactly opening, speech, keywords, closing, and estimatedSeconds.',
             ].join('\n'),
           },
           {
@@ -714,21 +793,7 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
             content: JSON.stringify({ username: input.username, question: input.question, language, targetSeconds, lengthTarget, conclusion }),
           },
         ],
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'meihua_answer', strict: true,
-            schema: {
-              type: 'object', additionalProperties: false,
-              properties: {
-                opening: { type: 'string' }, speech: { type: 'string' },
-                keywords: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 32 } },
-                closing: { type: 'string' }, estimatedSeconds: { type: 'integer', minimum: 1, maximum: 120 },
-              },
-              required: ['opening', 'speech', 'keywords', 'closing', 'estimatedSeconds'],
-            },
-          },
-        },
+        response_format: responseFormat,
       }),
     });
     if (!response.ok) {
@@ -736,16 +801,16 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
       throw new Error(`LLM_HTTP_${response.status}${detail ? `: ${detail}` : ''}`);
     }
     const envelope = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
-    const answer = readJsonContent(envelope.choices?.[0]?.message?.content);
+    const answer = trimAnswerToMaximum(
+      normalizeDirectSpokenAnswer(normalizeProviderAnswer(readJsonContent(envelope.choices?.[0]?.message?.content), targetSeconds), input, language),
+      language,
+      targetSeconds,
+      input.speechRate,
+    );
     assertValidAnswerContent(answer);
     const lengthCheck = validateAnswerLength(answer, language, targetSeconds, input.speechRate);
-    if (!lengthCheck.ok || !isDirectSpokenAnswer(answer, input, language)) {
-      // A compatible model may satisfy JSON Schema while ignoring the spoken
-      // length/direct-delivery rules. Keep the provider useful, but never let
-      // that violate the queue contract: regenerate deterministically from
-      // the same cast facts.
-      return new RuleBasedAnswerComposer().compose(input);
-    }
+    if (!lengthCheck.ok) throw new InvalidAnswerContentError(lengthCheck.reason ?? 'LLM_RESPONSE_LENGTH_INVALID');
+    if (!isDirectSpokenAnswer(answer, input, language)) throw new InvalidAnswerContentError('LLM_RESPONSE_NOT_DIRECT_CAST_INTERPRETATION');
     // Keep the duration authoritative even if a provider returns a stale or
     // approximate estimate.  The text length target and the TTS correction
     // stage are both driven by the operator-selected targetSeconds.

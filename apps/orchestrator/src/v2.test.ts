@@ -51,7 +51,7 @@ async function waitFor<T>(predicate: () => T | undefined, timeoutMs = 15_000): P
 describe('V2 director and synchronized plan', () => {
   it('defaults to prerecorded video presentation and exposes an audio-only escape hatch', () => {
     const runtime = createRuntime();
-    expect(runtime.getSettings().presentation).toMatchObject({ mode: 'VIDEO_LOOP', fallbackPolicy: 'VIDEO', profiles: [] });
+    expect(runtime.getSettings().presentation).toMatchObject({ mode: 'VIDEO_ONCE', fallbackPolicy: 'VIDEO', profiles: [] });
     expect(runtime.getPresentationPreflight().ready).toBe(false);
     runtime.updatePresentationSettings({ mode: 'AUDIO_ONLY' });
     expect(runtime.getPresentationPreflight()).toMatchObject({ mode: 'AUDIO_ONLY', ready: true });

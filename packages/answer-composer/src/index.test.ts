@@ -19,7 +19,7 @@ describe('answer schema guard', () => {
     let requestBody: Record<string, any> | undefined;
     const fetcher: typeof fetch = async (_url, init) => {
       requestBody = JSON.parse(String(init?.body));
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ opening: 'Hello. ', speech: 'A grounded reading can help you move with patience, notice feedback, and choose one practical step before committing further.', keywords: ['Hexagram 1'], closing: 'For reflection only.', estimatedSeconds: 20 }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ opening: '', speech: 'Hexagram 1 · The Creative shows that momentum is available, but your first move must be deliberate. The moving line at the beginning says build position before demanding results. The change toward Treading asks you to respect boundaries, timing, and the people whose support you need. Proceed with one visible step this week, keep the commitment modest, and measure the response before expanding. Confidence helps, but discipline protects the opportunity. The favorable window opens after preparation, not before.', keywords: ['Hexagram 1'], closing: '', estimatedSeconds: 20 }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
     };
     const answer = await new OpenAICompatibleAnswerComposer({ baseUrl: 'https://example.test/v1', model: 'test-model', apiKey: 'secret-key', fetcher }).compose({
       username: 'Viewer', question: 'Proceed?', targetSeconds: 20,
@@ -30,6 +30,20 @@ describe('answer schema guard', () => {
     expect(requestedLength).toEqual(estimateSpeechLengthTarget('en', 20, 1));
     expect(answer).toMatchObject({ estimatedSeconds: 20, opening: '', closing: '' });
     expect(answer.speech.startsWith('Hexagram 1')).toBe(true);
+  });
+
+  it('uses DeepSeek JSON-object mode and retains the local answer contract', async () => {
+    let requestBody: Record<string, any> | undefined;
+    const fetcher: typeof fetch = async (_url, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ opening: '', speech: 'Hexagram 1 · The Creative shows that momentum is available, but your first move must be deliberate. The moving line at the beginning says build position before demanding results. The change toward Treading asks you to respect boundaries, timing, and the people whose support you need. Proceed with one visible step this week, keep the commitment modest, and measure the response before expanding. Confidence helps, but discipline protects the opportunity. The favorable window opens after preparation, not before.', keywords: ['Hexagram 1'], closing: '', estimatedSeconds: 20 }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    };
+    const answer = await new OpenAICompatibleAnswerComposer({ baseUrl: 'https://api.deepseek.com', model: 'deepseek-chat', apiKey: 'secret-key', fetcher }).compose({
+      username: 'Viewer', question: 'Proceed?', targetSeconds: 20,
+      result: { primary: { name: '乾为天', number: 1, upperTrigram: '乾', lowerTrigram: '乾', lines: [] }, movingLines: [1], interpretationFacts: ['主卦乾为天'], engineVersion: 'test' },
+    });
+    expect(requestBody?.response_format).toEqual({ type: 'json_object' });
+    expect(answer).toMatchObject({ estimatedSeconds: 20, opening: '', closing: '' });
   });
 
   it('scales narration length by language, duration and configured voice speed', () => {
@@ -204,7 +218,7 @@ describe('Layer-3 voice prompt contract', () => {
     let requestBody: Record<string, any> | undefined;
     const fetcher: typeof fetch = async (_url, init) => {
       requestBody = JSON.parse(String(init?.body));
-      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ opening: 'Hi. ', speech: 'A grounded reading.', keywords: ['Hexagram 1'], closing: 'For reflection.', estimatedSeconds: 20 }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ opening: '', speech: 'Hexagram 1 · The Creative points to a favorable opening when you act with structure. The third moving line warns that visible progress can invite pressure, so keep your plan practical and do not overpromise. The change toward Treading favors careful coordination, clear limits, and respect for the pace of others. In career matters, make the next proposal specific, prepare the evidence, and wait for a concrete response before committing more time or resources. Your advantage grows through disciplined follow-through.', keywords: ['Hexagram 1'], closing: '', estimatedSeconds: 20 }) } }] }), { status: 200, headers: { 'content-type': 'application/json' } });
     };
     const result = {
       primary: { name: '乾为天', number: 1, upperTrigram: '乾', lowerTrigram: '乾', lines: [] },

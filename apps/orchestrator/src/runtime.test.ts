@@ -63,7 +63,7 @@ describe('LiveRuntime intake controls', () => {
     expect(runtime.getQueueOverview()).toEqual([expect.objectContaining({ username: 'GiftViewer', status: 'QUEUED', question: 'Should I move forward with this plan?', position: 1 })]);
   });
 
-  it('binds a gifted viewer next valid TikFinity comment without requiring a keyword', async () => {
+  it('keeps a gifted viewer pending through chatter and binds the next clear question', async () => {
     const runtime = createRuntime();
     runtime.startSession({ mode: 'REHEARSAL' });
     runtime.pause();
@@ -81,11 +81,9 @@ describe('LiveRuntime intake controls', () => {
     });
 
     expect(gift.action).toBe('PENDING_QUESTION');
-    // V7.2 新口径（treatAnyCommentAsQuestion）：任何评论都算提问——第一条闲聊即入队并绑定礼物资格
-    expect(chatter).toMatchObject({ status: 'QUEUED', priority: 'HIGH', speechTargetSeconds: 30, expiresAt: undefined });
-    expect(runtime.getGiftEntitlements()[0]).toMatchObject({ status: 'APPLIED', readingId: chatter?.id });
-    // 后续重复评论因“已有未完成任务”被拒，不重复占队
-    expect(reading).toBeUndefined();
+    expect(chatter).toBeUndefined();
+    expect(reading).toMatchObject({ status: 'QUEUED', priority: 'HIGH', speechTargetSeconds: 30, expiresAt: undefined });
+    expect(runtime.getGiftEntitlements()[0]).toMatchObject({ status: 'APPLIED', readingId: reading?.id });
   });
 
   it('promotes an existing queued reading immediately when a matching gift arrives', async () => {

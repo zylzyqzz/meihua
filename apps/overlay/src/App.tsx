@@ -1301,16 +1301,7 @@ export function SourceContent({
         </footer>
       </section>
     );
-  } else if (sourceId === "subtitles")
-    content = (
-      <section
-        className={`panel subtitles ${segment?.emphasis ? "emphasis" : ""}`}
-      >
-        {title}
-        <strong>{segment?.text ?? ""}</strong>
-      </section>
-    );
-  else if (sourceId === "queue") {
+  } else if (sourceId === "queue") {
     const copy = sourceCopy.en;
     content = (
       <section className="panel queue">
