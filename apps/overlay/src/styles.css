@@ -1,0 +1,514 @@
+:root{font-family:"Inter","Microsoft YaHei",sans-serif;color:#fff;background:transparent}*{box-sizing:border-box}html,body,#root{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}.source-mode{background:transparent}.connecting{width:100%;height:100%;background:transparent}.source-root{position:relative;width:100%;height:100%;display:grid;place-items:center;padding:12px;color:var(--text);filter:brightness(var(--brightness));font-size:calc(16px * var(--font-scale));background:transparent}.source-root.is-hidden{visibility:hidden}.preview-label{position:absolute;z-index:50;right:8px;top:8px;padding:5px 8px;border-radius:5px;background:#267353;color:#fff;font-size:11px}.panel{width:100%;border:1px solid color-mix(in srgb,var(--accent) 48%,transparent);border-radius:18px;background:var(--panel);box-shadow:0 10px 38px rgba(0,0,0,.28),0 0 var(--glow) color-mix(in srgb,var(--accent) 32%,transparent)}.custom-title{display:block;margin-bottom:8px;color:var(--accent);font-size:.58em;letter-spacing:.18em}.status{display:flex;align-items:center;justify-content:center;gap:16px;padding:20px 28px;text-align:center}.status>i{width:12px;height:12px;border-radius:50%;background:#72d19a;box-shadow:0 0 18px #72d19a}.status div{display:flex;flex-direction:column}.status strong{font-size:clamp(22px,5vw,42px)}.status small{margin-top:4px;color:var(--accent)}.current{padding:22px 30px;text-align:center}.current p{margin:0 0 8px;color:var(--accent);font-weight:800}.current>strong{display:block;font-size:clamp(20px,4vw,34px);line-height:1.4}.current small{display:inline-block;margin-top:12px;padding:6px 11px;border-radius:999px;background:color-mix(in srgb,var(--accent) 16%,transparent)}.hexagrams{height:100%;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding:24px;position:relative;text-align:center}.hexagrams>div{display:flex;min-width:0;flex-direction:column;align-items:center;justify-content:center}.hexagrams>div>span{color:var(--accent);font-size:12px;letter-spacing:.14em}.hexagrams>div>strong{margin-top:12px;color:var(--accent);overflow-wrap:anywhere}.hexagrams>small{position:absolute;left:20px;right:20px;bottom:8px;color:#b9b1a7}.hex-lines{width:min(150px,24vw);display:flex;flex-direction:column;gap:9px;margin-top:14px}.hex-line{height:14px;display:flex;position:relative;gap:16px}.hex-line i{height:100%;flex:1;background:var(--accent);box-shadow:0 0 12px color-mix(in srgb,var(--accent) 55%,transparent)}.hex-line.yang{gap:0}.hex-line.moving i{background:#ff7654;animation:pulse .9s ease-in-out infinite}.hex-line small{position:absolute;right:calc(100% + 8px);color:#8c837a}.subtitles{padding:20px 28px;text-align:center}.subtitles strong{font-size:clamp(19px,3.5vw,32px);line-height:1.55}.subtitles.emphasis{border-color:var(--accent);transform:scale(1.015)}.queue{padding:18px 22px}.queue header,.queue>div{display:flex;align-items:center;justify-content:space-between}.queue header{padding-bottom:9px;color:var(--accent)}.queue>div{padding:10px 0;border-top:1px solid rgba(255,255,255,.1)}.queue em{color:var(--accent);font-style:normal}.queue small{color:#b2a89d}.gift{padding:22px;text-align:center;border-color:var(--accent);animation:gift-in .32s cubic-bezier(.2,1.35,.3,1)}.gift p{margin:0 0 8px;color:var(--accent);font-weight:800}.gift strong,.gift small{display:block}.gift small{margin-top:8px;color:#c9bda9}.ranking{padding:18px}.ranking header,.ranking>div{display:grid;grid-template-columns:42px minmax(0,1fr) auto;align-items:center;gap:8px}.ranking header{display:flex;justify-content:space-between;color:var(--accent);padding-bottom:10px}.ranking>div{grid-template-columns:32px minmax(0,1fr) auto;border-top:1px solid rgba(255,255,255,.1);padding:10px 0}.ranking em{font-style:normal;color:var(--accent);font-size:19px}.ranking>div span{font-weight:800}.ranking small{grid-column:2/4;color:#aaa}.disclaimer{width:100%;padding:10px 16px;border-radius:9px;background:var(--panel);color:var(--text);text-align:center}.avatar-stage,.avatar-stage video,.avatar-stage img,.background-media,.background-media video,.background-media img{width:100%;height:100%}.avatar-stage video,.avatar-stage img{display:block;object-fit:contain}.avatar-stage.chroma{background:var(--chroma)}.background-fallback{width:100%;height:100%;background:var(--source-bg,#11151c)}.background-media{position:relative}.background-media video,.background-media img{position:absolute;inset:0;object-fit:cover}.particles{position:absolute;inset:0;overflow:hidden}.particles i{--x:calc((var(--i) * 43) % 100);position:absolute;left:calc(var(--x) * 1%);top:calc(((var(--i) * 67) % 100) * 1%);width:5px;height:5px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--accent);animation:float 5s ease-in-out infinite;animation-delay:calc(var(--i) * -.31s)}.effect-minimal *{animation:none!important}.effect-energetic .gift{animation-duration:.2s}.full-stage{display:block;padding:0;background:#0d1218;overflow:hidden}.full-stage>.source-root{position:absolute;inset:0}.full-effects{position:absolute;inset:0}.full-avatar{position:absolute;left:30px;bottom:110px;width:500px;height:940px}.full-status{position:absolute;left:90px;right:90px;top:70px;height:120px}.full-current{position:absolute;left:90px;right:90px;top:210px;height:190px}.full-hex{position:absolute;left:50px;right:50px;top:420px;height:510px}.full-queue{position:absolute;right:42px;bottom:250px;width:390px;height:470px}.full-gift{position:absolute;left:150px;right:150px;top:390px;height:160px}.full-subtitles{position:absolute;left:70px;right:70px;bottom:90px;height:170px}.full-disclaimer{position:absolute;left:90px;right:90px;bottom:18px;height:58px}.manager-mode{background:#101318;color:#edf0f2;overflow:auto}.manager-mode #root{height:auto;min-height:100%}.source-manager{max-width:1240px;margin:auto;padding:38px 26px}.source-manager header p{color:#d9a451;letter-spacing:.14em;font-size:12px}.source-manager header h1{font-size:36px;margin:8px 0}.source-manager header span{color:#99a3ad}.source-manager>section{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px;margin-top:26px}.source-manager article{padding:19px;border:1px solid #303741;border-radius:14px;background:#181d24}.source-manager article>div,.source-manager footer{display:flex;justify-content:space-between;align-items:center;gap:10px}.source-manager h2{margin:0;font-size:18px}.source-manager code{color:#d9a451}.source-manager p{min-height:42px;color:#9ca6b1}.source-manager input{width:100%;padding:10px;border:1px solid #39414b;border-radius:7px;background:#0e1217;color:#dce1e6}.source-manager footer{margin-top:12px}.source-manager button{padding:9px 12px;border:0;border-radius:8px;background:#2c7754;color:white;cursor:pointer}.source-manager button:first-child{background:#303743}@keyframes pulse{50%{filter:brightness(1.6);box-shadow:0 0 25px #ff7654}}@keyframes gift-in{from{opacity:0;transform:scale(.85)}to{opacity:1;transform:scale(1)}}@keyframes float{50%{transform:translateY(-42px);opacity:.35}}@media(max-width:850px){.source-manager>section{grid-template-columns:1fr 1fr}}@media(max-width:560px){.source-manager>section{grid-template-columns:1fr}.hexagrams{padding:12px;gap:5px}.hex-lines{width:24vw}}
+.source-manager>section.stage-highlight{display:block;margin-top:22px}.source-manager article.stage-card{border-color:#d9a451;background:linear-gradient(160deg,#241d10,#181d24);box-shadow:0 0 0 1px rgba(217,164,81,.35)}.stage-card h2 em{margin-left:10px;padding:3px 8px;border-radius:999px;background:#d9a451;color:#17120a;font-size:11px;font-style:normal;letter-spacing:.06em;vertical-align:middle}
+/* 工作台画布模式下的模块占位卡片（?canvas=1） */
+.canvas-idle {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 72%, #000 28%);
+  text-align: center;
+  padding: 12px;
+}
+.canvas-idle b {
+  color: var(--accent);
+  font-size: 15px;
+  letter-spacing: .1em;
+}
+.canvas-idle span {
+  color: var(--text);
+  opacity: .72;
+  font-size: 12px;
+}
+
+/* Lux3D decorative OBS source: transparent, self-animated and independent
+   from the live reading state. */
+.lux3d-source {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: transparent;
+}
+.lux3d-source model-viewer {
+  width: min(92vw, 420px);
+  height: min(92vw, 420px);
+  background: transparent;
+  --poster-color: transparent;
+}
+.lux3d-loading {
+  color: #d9a451;
+  font-size: 13px;
+  letter-spacing: .12em;
+  opacity: .78;
+}
+.lux3d-aura {
+  position: absolute;
+  width: 70%;
+  height: 70%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(227, 174, 78, .2), rgba(227, 174, 78, 0) 68%);
+  filter: blur(22px);
+  pointer-events: none;
+  animation: lux3d-breathe 4.8s ease-in-out infinite;
+}
+@keyframes lux3d-breathe {
+  50% { opacity: .62; transform: scale(1.08); }
+}
+
+/* Lux3D presentation: front-facing wheel, physical hover, and a live-only
+   divination crown. The wrapper stays mounted; only these classes change. */
+.lux3d-source {
+  isolation: isolate;
+}
+.lux3d-source::before,
+.lux3d-source::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 3%;
+  width: min(46vw, 220px);
+  height: 34px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  border: 1px solid rgba(248, 198, 100, .48);
+  box-shadow: 0 0 18px rgba(242, 178, 66, .34), inset 0 0 17px rgba(242, 178, 66, .12);
+  opacity: .18;
+  pointer-events: none;
+  z-index: 3;
+  animation: lux3d-crown-drift 7s ease-in-out infinite;
+}
+.lux3d-source::after {
+  top: 2%;
+  width: min(68vw, 300px);
+  height: 64px;
+  transform: translateX(-50%) rotate(-7deg);
+  border-radius: 50%;
+  border-color: rgba(255, 224, 154, .58);
+  box-shadow: 0 0 26px rgba(255, 188, 73, .38), 0 0 60px rgba(255, 155, 38, .14);
+  animation-name: lux3d-crown-orbit;
+}
+.lux3d-source.is-casting::before,
+.lux3d-source.is-casting::after { opacity: .92; }
+.lux3d-source.lux3d-new-reading::before {
+  animation: lux3d-reading-burst 3.8s cubic-bezier(.2, .8, .2, 1) both;
+}
+.lux3d-source.lux3d-new-reading::after {
+  animation: lux3d-reading-ring 3.8s cubic-bezier(.2, .8, .2, 1) both;
+}
+.lux3d-source.is-casting .lux3d-aura {
+  opacity: .9;
+  filter: blur(18px) saturate(1.45);
+  animation-duration: 2.1s;
+}
+.lux3d-source model-viewer {
+  z-index: 2;
+  transform-origin: 50% 50%;
+  animation: none;
+  transform: translateY(-2px);
+}
+/* The mesh itself stays still. This transparent ring is the continuously
+   rotating outer layer, while the data-driven hexagrams sit above the hub. */
+.lux3d-outer-ring {
+  position: absolute;
+  width: min(92vw, 420px);
+  aspect-ratio: 1;
+  border: 1px solid rgba(240, 184, 77, .42);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 1;
+  box-shadow: 0 0 18px rgba(221, 151, 35, .15), inset 0 0 18px rgba(221, 151, 35, .1);
+  animation: lux3d-outer-spin 24s linear infinite;
+}
+.lux3d-outer-ring::before,
+.lux3d-outer-ring::after {
+  content: '';
+  position: absolute;
+  inset: 3.5%;
+  border: 1px solid rgba(255, 219, 132, .26);
+  border-radius: 50%;
+  background: repeating-conic-gradient(from 0deg, rgba(249, 196, 91, .68) 0deg 1deg, transparent 1deg 12deg);
+  mask: radial-gradient(circle, transparent 0 78%, #000 78.5% 81%, transparent 81.5%);
+}
+.lux3d-outer-ring::after {
+  inset: 8%;
+  border-color: rgba(205, 137, 37, .22);
+  background: repeating-conic-gradient(from 4deg, rgba(255, 224, 150, .52) 0deg 2deg, transparent 2deg 30deg);
+  mask: radial-gradient(circle, transparent 0 84%, #000 84.5% 87%, transparent 87.5%);
+  animation: lux3d-outer-spin 13s linear infinite reverse;
+}
+.lux3d-source.is-casting .lux3d-outer-ring {
+  border-color: rgba(255, 218, 127, .85);
+  box-shadow: 0 0 28px rgba(244, 176, 46, .5), inset 0 0 24px rgba(244, 176, 46, .18);
+  animation-duration: 16s;
+}
+.lux3d-hex-overlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 4;
+  display: grid;
+  width: min(68vw, 286px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 7px 6px;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(245, 190, 88, .34);
+  border-radius: 18px;
+  background: radial-gradient(circle at 50% 45%, rgba(24, 17, 10, .84), rgba(5, 7, 9, .64));
+  box-shadow: 0 0 18px rgba(219, 150, 39, .28), inset 0 0 12px rgba(245, 190, 88, .12);
+  backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+.lux3d-hex-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 2px 4px;
+  border-right: 1px solid rgba(245, 190, 88, .18);
+  text-align: center;
+}
+.lux3d-hex-card:last-child { border-right: 0; }
+.lux3d-hex-card > span {
+  color: #f4c86e;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .11em;
+}
+.lux3d-hex-card > strong {
+  max-width: 100%;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #ead4a5;
+  font-size: 7px;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lux3d-hex-card .hex-lines {
+  width: 42px;
+  gap: 2px;
+  margin-top: 4px;
+}
+.lux3d-hex-card .hex-line { height: 3px; gap: 4px; }
+.lux3d-hex-card .hex-line small { display: none; }
+.lux3d-hex-card .hex-line i { box-shadow: 0 0 5px rgba(244, 200, 110, .58); }
+.lux3d-new-reading .lux3d-hex-overlay {
+  animation: lux3d-inner-cast .95s cubic-bezier(.2, 1.35, .3, 1) both;
+}
+@keyframes lux3d-outer-spin { to { transform: rotate(360deg); } }
+@keyframes lux3d-inner-cast {
+  0% { opacity: 0; transform: translate(-50%, -50%) rotate(-18deg) scale(.35); }
+  36% { opacity: 1; transform: translate(-50%, -50%) rotate(9deg) scale(1.08); }
+  72% { transform: translate(-50%, -50%) rotate(-3deg) scale(.98); }
+  100% { opacity: 1; transform: translate(-50%, -50%) rotate(0deg) scale(1); }
+}
+@keyframes lux3d-hover-spin {
+  0% { transform: translateY(-8px) rotate(0deg) scale(1); }
+  25% { transform: translateY(0) rotate(90deg) scale(1.012); }
+  50% { transform: translateY(8px) rotate(180deg) scale(1.018); }
+  75% { transform: translateY(0) rotate(270deg) scale(1.012); }
+  100% { transform: translateY(-8px) rotate(360deg) scale(1); }
+}
+@keyframes lux3d-crown-drift {
+  0%, 100% { margin-top: 0; filter: brightness(.8); }
+  50% { margin-top: 8px; filter: brightness(1.25); }
+}
+@keyframes lux3d-crown-orbit {
+  0%, 100% { margin-top: 0; transform: translateX(-50%) rotate(-7deg) scaleX(1); }
+  50% { margin-top: -5px; transform: translateX(-50%) rotate(7deg) scaleX(1.06); }
+}
+@keyframes lux3d-reading-burst {
+  0% { opacity: 0; transform: translateX(-50%) rotate(45deg) scale(.35); filter: blur(5px); }
+  18% { opacity: 1; filter: blur(0); }
+  65% { opacity: 1; transform: translateX(-50%) rotate(225deg) scale(1.08); }
+  100% { opacity: .72; transform: translateX(-50%) rotate(405deg) scale(1); filter: blur(0); }
+}
+@keyframes lux3d-reading-ring {
+  0% { opacity: 0; transform: translateX(-50%) rotate(-7deg) scale(.55); }
+  25% { opacity: 1; }
+  65% { opacity: 1; transform: translateX(-50%) rotate(7deg) scale(1.18); }
+  100% { opacity: .74; transform: translateX(-50%) rotate(-7deg) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lux3d-source model-viewer,
+  .lux3d-source::before,
+  .lux3d-source::after { animation-duration: .01ms; animation-iteration-count: 1; }
+}
+
+/* Lux3D v3: the generated mesh looked decorative but not like a luopan.
+   Keep the beautiful fixed Bagua core separate from the obvious rotating
+   calibration rings, so the live motion reads instantly in OBS. */
+.lux3d-source model-viewer { display: none; }
+.lux3d-state-anchor { display: none; }
+.lux3d-source {
+  background: transparent;
+}
+.lux3d-source::before,
+.lux3d-source::after {
+  top: 6%;
+  z-index: 7;
+  opacity: .5;
+}
+.lux3d-aura {
+  z-index: 0;
+  width: 88%;
+  height: 88%;
+  background: radial-gradient(circle, rgba(255, 205, 100, .23) 0%, rgba(215, 133, 28, .12) 35%, rgba(0, 0, 0, 0) 70%);
+  filter: blur(18px);
+}
+.lux3d-outer-ring {
+  width: min(96vw, 404px);
+  z-index: 1;
+  border: 2px solid rgba(255, 207, 106, .88);
+  background: repeating-conic-gradient(from 0deg, rgba(255, 225, 152, .98) 0deg .65deg, transparent .65deg 8deg, rgba(190, 109, 31, .72) 8deg 9deg, transparent 9deg 15deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 88%, #000 88.5% 99%, transparent 99.5%);
+  mask: radial-gradient(circle, transparent 0 88%, #000 88.5% 99%, transparent 99.5%);
+  box-shadow: 0 0 16px rgba(255, 184, 56, .7), inset 0 0 18px rgba(255, 196, 69, .55);
+  animation: lux3d-outer-spin 6.5s linear infinite;
+}
+.lux3d-outer-ring::before,
+.lux3d-outer-ring::after {
+  inset: 5%;
+  border: 1px solid rgba(255, 218, 135, .85);
+  background: repeating-conic-gradient(from 2deg, rgba(255, 236, 180, .85) 0deg 1deg, transparent 1deg 10deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 88%, #000 88.5% 96%, transparent 96.5%);
+  mask: radial-gradient(circle, transparent 0 88%, #000 88.5% 96%, transparent 96.5%);
+}
+.lux3d-outer-ring::after {
+  inset: 13%;
+  border-color: rgba(232, 158, 47, .72);
+  background: conic-gradient(from 0deg, transparent 0deg 18deg, rgba(255, 224, 148, .95) 18deg 22deg, transparent 22deg 88deg, rgba(255, 224, 148, .95) 88deg 92deg, transparent 92deg 180deg, rgba(255, 224, 148, .95) 180deg 184deg, transparent 184deg 268deg, rgba(255, 224, 148, .95) 268deg 272deg, transparent 272deg 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 86%, #000 86.5% 94%, transparent 94.5%);
+  mask: radial-gradient(circle, transparent 0 86%, #000 86.5% 94%, transparent 94.5%);
+}
+.lux3d-orbit {
+  position: absolute;
+  width: min(85vw, 358px);
+  aspect-ratio: 1;
+  z-index: 2;
+  border: 1px solid rgba(255, 209, 111, .48);
+  border-radius: 50%;
+  background: conic-gradient(from 0deg, rgba(255, 223, 150, .95) 0deg 5deg, transparent 5deg 104deg, rgba(255, 206, 103, .95) 104deg 109deg, transparent 109deg 180deg, rgba(255, 223, 150, .95) 180deg 185deg, transparent 185deg 284deg, rgba(255, 206, 103, .95) 284deg 289deg, transparent 289deg 360deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 92%, #000 92.5% 98%, transparent 98.5%);
+  mask: radial-gradient(circle, transparent 0 92%, #000 92.5% 98%, transparent 98.5%);
+  filter: drop-shadow(0 0 8px rgba(255, 188, 65, .65));
+  animation: lux3d-orbit-spin 3.2s linear infinite reverse;
+}
+.lux3d-core {
+  position: relative;
+  z-index: 3;
+  display: block;
+  width: min(78vw, 330px);
+  aspect-ratio: 1;
+  object-fit: contain;
+  filter: drop-shadow(0 14px 20px rgba(0, 0, 0, .68)) drop-shadow(0 0 14px rgba(244, 182, 62, .24));
+  transform: translateZ(0);
+}
+.lux3d-casting-rays {
+  position: absolute;
+  width: min(108vw, 455px);
+  aspect-ratio: 1;
+  z-index: 4;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 224, 150, .7) 0deg 1deg, transparent 1deg 15deg);
+  -webkit-mask: radial-gradient(circle, transparent 0 45%, #000 49% 54%, transparent 58%);
+  mask: radial-gradient(circle, transparent 0 45%, #000 49% 54%, transparent 58%);
+}
+.lux3d-source.is-casting .lux3d-outer-ring {
+  border-color: #ffe09a;
+  box-shadow: 0 0 26px rgba(255, 187, 54, .95), inset 0 0 24px rgba(255, 204, 91, .68);
+  animation-duration: 2.8s;
+}
+.lux3d-source.is-casting .lux3d-orbit { animation-duration: 1.45s; }
+.lux3d-source.is-casting.lux3d-new-reading .lux3d-core { animation: lux3d-core-cast 1.45s cubic-bezier(.18, .82, .25, 1) both; }
+.lux3d-source.is-casting.lux3d-new-reading .lux3d-casting-rays { animation: lux3d-rays-burst 1.5s cubic-bezier(.12, .72, .18, 1) both; }
+.lux3d-source.is-casting .lux3d-hex-overlay {
+  border-color: rgba(255, 222, 144, .9);
+  box-shadow: 0 0 22px rgba(255, 175, 43, .72), inset 0 0 15px rgba(255, 220, 134, .16);
+}
+.lux3d-hex-overlay { z-index: 6; }
+@keyframes lux3d-orbit-spin { to { transform: rotate(360deg); } }
+@keyframes lux3d-core-cast {
+  0% { opacity: .35; transform: scale(.76) rotate(0deg); filter: brightness(1.8) saturate(1.45) drop-shadow(0 0 22px #ffd67a); }
+  48% { opacity: 1; transform: scale(1.08) rotate(390deg); filter: brightness(1.45) saturate(1.4) drop-shadow(0 0 26px #ffc861); }
+  76% { transform: scale(.98) rotate(352deg); }
+  100% { opacity: 1; transform: scale(1) rotate(360deg); }
+}
+@keyframes lux3d-rays-burst {
+  0% { opacity: 0; transform: scale(.35) rotate(0deg); }
+  26% { opacity: .95; }
+  100% { opacity: 0; transform: scale(1.22) rotate(210deg); }
+}
+
+.gift-window { height: 100%; display: flex; align-items: center; justify-content: center; gap: 20px; text-align: left; }
+.gift-window > img { width: min(110px,24%); height: min(110px,80%); object-fit: contain; filter: drop-shadow(0 0 14px color-mix(in srgb,var(--accent) 55%,transparent)); }
+.gift-window > div { min-width: 0; }
+.gift-window > div > p { font-size: clamp(18px,3vw,30px); }
+.gift-offer-window { padding: 10px; }
+.gift-offer-list { width: 100%; display: grid; grid-template-columns: minmax(0,1fr); gap: 12px; }
+.gift-offer-item { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.gift-offer-item > img { width: 58px; height: 58px; flex: none; object-fit: contain; filter: drop-shadow(0 0 10px color-mix(in srgb,var(--accent) 50%,transparent)); }
+.gift-offer-item > span { min-width: 0; }
+.gift-offer-item p { margin: 0 0 3px; color: var(--accent); font-weight: 850; }
+.gift-offer-item strong { overflow-wrap: anywhere; line-height: 1.25; }
+.gift-offer-item small { margin-top: 3px; color: color-mix(in srgb,var(--text) 72%,transparent); }
+
+/* Queue rows are deliberately two-line identity cards: name first, state below. */
+.queue > div {
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 10px;
+}
+.queue > div > .queue-person {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+}
+.queue > div > .queue-person > strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue > div > .queue-person > .queue-state {
+  display: block;
+  padding: 0;
+  border: 0;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  font-size: .72em;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Make the idle rotation legible even against OBS's transparent canvas. */
+.lux3d-source::before,
+.lux3d-source::after { opacity: 0; }
+.lux3d-source.is-casting::before,
+.lux3d-source.is-casting::after { opacity: .78; }
+.lux3d-outer-ring {
+  width: min(92vw, 388px);
+  border: 4px dashed #f6c766;
+  background: none;
+  -webkit-mask: none;
+  mask: none;
+  box-shadow: 0 0 13px rgba(255, 182, 52, .85), inset 0 0 13px rgba(255, 190, 62, .28);
+  animation-duration: 7.2s;
+}
+.lux3d-outer-ring::before {
+  inset: 10px;
+  border: 1px solid rgba(255, 224, 145, .9);
+  background: none;
+  -webkit-mask: none;
+  mask: none;
+}
+.lux3d-outer-ring::after {
+  inset: 22px;
+  border: 3px dotted rgba(255, 194, 70, .92);
+  background: none;
+  -webkit-mask: none;
+  mask: none;
+}
+.lux3d-orbit {
+  width: min(86vw, 362px);
+  border: 3px solid transparent;
+  border-top-color: #fff0b7;
+  border-right-color: #f4b844;
+  background: none;
+  -webkit-mask: none;
+  mask: none;
+  box-shadow: 0 0 14px rgba(255, 187, 58, .85);
+  animation-duration: 2.4s;
+}
+.lux3d-core { width: min(79vw, 334px); }
+.lux3d-source.lux3d-new-reading::before,
+.lux3d-source.lux3d-new-reading::after { animation: none; opacity: 0; }
+.lux3d-source.is-casting.lux3d-new-reading::before { animation: lux3d-reading-burst 3.8s cubic-bezier(.2, .8, .2, 1) both; }
+.lux3d-source.is-casting.lux3d-new-reading::after { animation: lux3d-reading-ring 3.8s cubic-bezier(.2, .8, .2, 1) both; }
+
+/* The luopan is a primary visual, not a decorative thumbnail.  Keep it
+   readable in the 460px workbench module and in the 1080x1920 OBS source. */
+.lux3d-core { width: min(86vw, 360px); }
+.lux3d-source model-viewer.lux3d-model-core {
+  width: min(86vw, 360px);
+  height: min(86vw, 360px);
+}
+.lux3d-outer-ring { width: min(100vw, 420px); }
+.lux3d-orbit { width: min(94vw, 392px); }
+.lux3d-casting-rays { width: min(104vw, 432px); }
+.lux3d-hex-overlay { width: min(75vw, 312px); }
+.lux3d-hex-card > span { font-size: 9px; }
+.lux3d-hex-card > strong { font-size: 8px; }
+.lux3d-hex-card .hex-lines { width: 48px; }
+
+/* All visible layers use the exact same centre point. The old model loader
+   is intentionally hidden: it must never reserve a second grid row. */
+.lux3d-loading { display: none; }
+.lux3d-aura,
+.lux3d-outer-ring,
+.lux3d-orbit,
+.lux3d-casting-rays,
+.lux3d-core {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+}
+.lux3d-aura { transform: translate(-50%, -50%); }
+.lux3d-core { transform: translate(-50%, -50%); }
+.lux3d-source model-viewer.lux3d-model-core {
+  display: block;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(79vw, 334px);
+  height: min(79vw, 334px);
+  transform: translate(-50%, -50%);
+  background: transparent;
+  --poster-color: transparent;
+  z-index: 3;
+}
+.lux3d-source.is-casting.lux3d-new-reading model-viewer.lux3d-model-core { animation: lux3d-model-cast 1.45s cubic-bezier(.18, .82, .25, 1) both; }
+.source-decoration-asset { position: absolute; inset: 0; z-index: 9; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+@keyframes lux3d-model-cast {
+  0% { opacity: .35; transform: translate(-50%, -50%) scale(.76) rotate(0deg); filter: brightness(1.8) saturate(1.45) drop-shadow(0 0 22px #ffd67a); }
+  48% { opacity: 1; transform: translate(-50%, -50%) scale(1.08) rotate(390deg); filter: brightness(1.45) saturate(1.4) drop-shadow(0 0 26px #ffc861); }
+  76% { transform: translate(-50%, -50%) scale(.98) rotate(352deg); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(360deg); }
+}
+.lux3d-outer-ring { animation-name: lux3d-outer-spin-centred; }
+.lux3d-orbit { animation-name: lux3d-orbit-spin-centred; }
+@keyframes lux3d-breathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); }
+  50% { opacity: .62; transform: translate(-50%, -50%) scale(1.08); }
+}
+@keyframes lux3d-outer-spin-centred {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes lux3d-orbit-spin-centred {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes lux3d-core-cast {
+  0% { opacity: .35; transform: translate(-50%, -50%) scale(.76) rotate(0deg); filter: brightness(1.8) saturate(1.45) drop-shadow(0 0 22px #ffd67a); }
+  48% { opacity: 1; transform: translate(-50%, -50%) scale(1.08) rotate(390deg); filter: brightness(1.45) saturate(1.4) drop-shadow(0 0 26px #ffc861); }
+  76% { transform: translate(-50%, -50%) scale(.98) rotate(352deg); }
+  100% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(360deg); }
+}
+@keyframes lux3d-rays-burst {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(.35) rotate(0deg); }
+  26% { opacity: .95; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.22) rotate(210deg); }
+}

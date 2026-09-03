@@ -1,0 +1,21 @@
+# 复制为 local.yaml 后按本机环境覆盖；local.yaml 不进入版本库。
+server:
+  host: 127.0.0.1
+  port: 3210
+
+providers:
+  liveInput:
+    adapter: tikfinity
+    url: ws://127.0.0.1:21213/
+  tts:
+    adapter: windows
+    voiceId: Microsoft Zira Desktop
+
+overlay:
+  contentLanguage: en
+  effects:
+    accentColor: "#e9b86e"
+    backgroundOpacity: 0.82
+    glowIntensity: 0.65
+    animationStyle: smooth
+    particles: true

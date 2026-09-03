@@ -1,0 +1,27 @@
+{
+  "name": "meihua-live",
+  "version": "2.0.0",
+  "private": true,
+  "description": "梅花直播事件驱动中控系统 V2.0",
+  "packageManager": "pnpm@11.19.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @meihua/orchestrator --filter @meihua/overlay --filter @meihua/admin dev",
+    "start:live": "powershell -ExecutionPolicy Bypass -File scripts/start-live.ps1",
+    "start:production": "powershell -ExecutionPolicy Bypass -File scripts/start-production.ps1",
+    "verify:offline": "powershell -ExecutionPolicy Bypass -File scripts/verify-offline.ps1",
+    "verify:readiness": "powershell -ExecutionPolicy Bypass -File scripts/verify-live-readiness.ps1",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.7"
+  }
+}

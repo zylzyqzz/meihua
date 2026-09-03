@@ -1,0 +1,71 @@
+server:
+  host: 127.0.0.1
+  port: 3210
+
+queue:
+  maxVisible: 6
+  maxTotal: 30
+  sameUserCooldownMinutes: 10
+  expireMinutes: 20
+  dedupeWindowSeconds: 10
+
+moderation:
+  minChars: 4
+  maxChars: 120
+  llmTimeoutMs: 2000
+
+reading:
+  speechTargetSeconds: 28
+  watchdogMs: 45000
+  externalRetryCount: 1
+
+gifts:
+  enabled: true
+  entitlementExpireMinutes: 30
+  rules:
+    - id: rose-priority
+      giftId: "5655"
+      giftName: Rose
+      enabled: true
+      minRepeatCount: 1
+      priority: HIGH
+      speechTargetSeconds: 40
+    - id: perfume-vip
+      giftId: "5658"
+      giftName: Perfume
+      enabled: true
+      minRepeatCount: 1
+      priority: MANUAL
+      speechTargetSeconds: 60
+
+providers:
+  liveInput:
+    adapter: tikfinity # local | tikfinity
+    url: ws://127.0.0.1:21213/
+  llm:
+    adapter: rule-based # rule-based | openai-compatible
+    baseUrl: ""
+    model: ""
+    apiKeyEnv: LLM_API_KEY
+  tts:
+    adapter: windows # windows | external
+    voiceId: Microsoft Zira Desktop
+    apiKeyEnv: TTS_API_KEY
+  avatar:
+    adapter: none # none | vtube-studio | warudo
+    url: ws://localhost:8001
+
+overlay:
+  disclaimer: Traditional cultural entertainment only. Not professional advice.
+  contentLanguage: en
+  effects:
+    accentColor: "#e9b86e"
+    backgroundOpacity: 0.82
+    glowIntensity: 0.65
+    animationStyle: smooth
+    particles: true
+
+presentation:
+  mode: VIDEO_LOOP
+  fallbackPolicy: VIDEO
+  profiles: []

@@ -1,0 +1,18 @@
+appId: com.meihua.studio
+productName: 梅花中控
+directories:
+  output: release
+  buildResources: build
+files:
+  - main.cjs
+  - preload.cjs
+  - build/icon.png
+asar: true
+win:
+  target:
+    - portable
+  icon: build/icon.png
+portable:
+  artifactName: MeiHuaStudio-${version}.exe
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/

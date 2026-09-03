@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+onlyBuiltDependencies:
+  - esbuild
+  - electron
+
+allowBuilds:
+  electron: true
+  esbuild: true
+  # The binary is bundled in this workspace; skip the package's network installer.
+  ffmpeg-static: false

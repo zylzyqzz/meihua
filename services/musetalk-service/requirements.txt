@@ -1,0 +1,5 @@
+# 仅渲染服务骨架的 Web 层依赖（MuseTalk 本体依赖见 E:\meihua\MuseTalk\requirements.txt，
+# 在带 NVIDIA GPU 的直播机上按其官方说明安装 torch/cuda 等）。
+fastapi>=0.110
+uvicorn>=0.29
+pydantic>=2.6

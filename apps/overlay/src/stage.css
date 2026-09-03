@@ -1,0 +1,676 @@
+/* V2.2 official integrated stage — fixed 1080×1920 composition.
+   All motion is CSS-only and keyed by snapshot/cue changes; the stage keeps no
+   JavaScript timers. */
+
+.stage-root {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  background: var(--source-bg);
+}
+
+.stage-status {
+  position: absolute;
+  z-index: 5;
+  left: 46px;
+  right: 46px;
+  top: 40px;
+  height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.stage-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.stage-brand i {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #6b7280;
+  flex: none;
+}
+
+.stage-brand i.is-live {
+  background: #ff5d5d;
+  box-shadow: 0 0 22px #ff5d5d;
+  animation: stage-live-pulse 2.8s ease-in-out infinite;
+}
+
+.stage-brand b {
+  font-size: clamp(17px, 2.6vw, 25px);
+  letter-spacing: .16em;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.stage-brand span {
+  font-size: clamp(14px, 1.9vw, 19px);
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-now {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  max-width: 52%;
+  min-width: 0;
+}
+
+.stage-now b {
+  color: var(--accent);
+  font-size: clamp(16px, 2.1vw, 21px);
+  white-space: nowrap;
+}
+
+.stage-now span {
+  color: var(--text);
+  font-size: clamp(14px, 1.8vw, 18px);
+  opacity: .92;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-person-zone,
+.stage-queue-zone,
+.stage-hex-zone,
+.stage-gift-zone {
+  position: absolute;
+  z-index: 2;
+}
+
+.stage-person-zone {
+  left: 40px;
+  top: 310px;
+  width: 520px;
+  height: 870px;
+}
+
+.stage-person {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.stage-person video,
+.stage-person img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.stage-person.media-provider video {
+  object-fit: cover;
+}
+
+.stage-person.media-slot.chroma {
+  background: var(--chroma-color, #00ff00);
+}
+
+.stage-person-empty {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.stage-light-cone {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 640px;
+  height: 820px;
+  transform: translateX(-50%);
+  background: radial-gradient(50% 62% at 50% 100%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 72%);
+  pointer-events: none;
+  animation: stage-breathe 7s ease-in-out infinite alternate;
+}
+
+.stage-queue-zone {
+  right: 40px;
+  top: 310px;
+  width: 430px;
+  height: 870px;
+}
+
+.stage-hex-zone {
+  left: 80px;
+  right: 80px;
+  top: 1240px;
+  height: 420px;
+}
+
+.stage-script-zone,
+.stage-script-overlay {
+  position: absolute;
+  left: 80px;
+  right: 80px;
+  top: 1680px;
+  height: 112px;
+  z-index: 35;
+  pointer-events: none;
+}
+
+.stage-script-overlay {
+  overflow: hidden;
+}
+
+.stage-gift-zone {
+  left: 46px;
+  right: 46px;
+  top: 158px;
+  z-index: 4;
+}
+
+.stage-panel {
+  border: 1px solid var(--panel-line, color-mix(in srgb, var(--accent) 42%, transparent));
+  border-radius: 22px;
+  background: var(--panel);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, .32), 0 0 var(--glow) color-mix(in srgb, var(--accent) 26%, transparent);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+}
+/* 绿幕/透明（裸模式）：面板无边框无阴影，交给色度键或浏览器源原生透出 */
+.background-chroma .stage-panel, .background-transparent .stage-panel,
+.background-chroma .stage-gift, .background-transparent .stage-gift { border-color: transparent; box-shadow: none; }
+
+.stage-panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 10px;
+}
+
+.stage-panel header b {
+  color: var(--accent);
+  font-size: clamp(13px, 1.7vw, 17px);
+  letter-spacing: .18em;
+  font-weight: 800;
+}
+
+.stage-panel header span {
+  color: var(--text);
+  opacity: .85;
+  font-size: clamp(12px, 1.5vw, 15px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Resident queue — three explicit states: qualified waiting for a question,
+   question asked waiting for the cast, and the reading being cast right now. */
+
+.stage-queue {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.stage-queue header {
+  flex: none;
+}
+
+.stage-queue-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+  opacity: .55;
+  font-size: clamp(14px, 1.9vw, 19px);
+}
+
+.stage-queue-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px 18px;
+  border-top: 1px solid rgba(255, 255, 255, .09);
+}
+
+.stage-queue-row em {
+  font-style: normal;
+  color: var(--accent);
+  font-weight: 800;
+  font-size: clamp(14px, 1.8vw, 18px);
+}
+
+.stage-queue-row span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.stage-reading-script {
+  height: 100%;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--panel) 88%, #000 12%);
+}
+
+.stage-reading-script header {
+  padding: 9px 16px 4px;
+}
+
+.stage-reading-script header b {
+  letter-spacing: .08em;
+}
+
+.stage-reading-script-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 0 16px 10px;
+  color: var(--text);
+  font-size: clamp(12px, 1.5vw, 15px);
+  line-height: 1.4;
+}
+
+.stage-reading-script-body strong,
+.stage-reading-script-body p,
+.stage-reading-script-body small {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stage-reading-script-body strong,
+.stage-reading-script-body small {
+  color: var(--accent);
+}
+
+.stage-reading-script-body p {
+  opacity: .9;
+}
+
+.stage-queue-row strong {
+  display: block;
+  font-size: clamp(15px, 2vw, 20px);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-queue-row small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text);
+  opacity: .62;
+  font-size: clamp(11px, 1.4vw, 14px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-queue-row b {
+  display: block;
+  margin-top: 3px;
+  font-size: clamp(10px, 1.25vw, 13px);
+  letter-spacing: .04em;
+  white-space: nowrap;
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.stage-queue-row.is-casting {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.stage-queue-row.is-casting b {
+  border-color: #ff7654;
+  color: #ff7654;
+  animation: stage-cast-glow 1.6s ease-in-out infinite;
+}
+
+.stage-queue-row.is-waiting b {
+  border-color: #7fc8ff;
+  color: #7fc8ff;
+}
+
+.stage-queue-row.is-queued b {
+  border-color: color-mix(in srgb, #9ae6a8 55%, transparent);
+  color: #9ae6a8;
+}
+
+/* Hexagram reveal panel: @username + question + primary/mutual/changed + moving line. */
+
+.stage-hexagram {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.stage-hexagram-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding: 12px 22px 6px;
+  animation: stage-reveal .6s cubic-bezier(.2, .8, .3, 1);
+}
+
+.stage-hex-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.stage-hex-card .hex-lines {
+  width: min(150px, 11vw);
+  margin-top: 2px;
+  gap: 8px;
+}
+
+.stage-hex-card strong {
+  margin-top: 12px;
+  color: var(--text);
+  font-size: clamp(13px, 1.7vw, 17px);
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.stage-hex-card span {
+  margin-top: 5px;
+  color: var(--accent);
+  font-size: clamp(10px, 1.3vw, 13px);
+  letter-spacing: .16em;
+}
+
+.stage-hex-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  opacity: .7;
+}
+
+.stage-hex-empty i {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+  animation: stage-rotate 26s linear infinite;
+}
+
+.stage-hex-empty p {
+  margin: 0;
+  font-size: clamp(15px, 2vw, 20px);
+  color: var(--text);
+}
+
+.stage-hexagram footer {
+  padding: 10px 22px 16px;
+}
+
+.stage-hex-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border-top: 1px solid rgba(255, 255, 255, .1);
+  padding-top: 12px;
+}
+
+.stage-hex-meta span {
+  color: var(--accent);
+  font-weight: 800;
+  font-size: clamp(14px, 1.8vw, 18px);
+  white-space: nowrap;
+}
+
+.stage-hex-meta strong {
+  color: var(--text);
+  font-size: clamp(15px, 2vw, 21px);
+  font-weight: 700;
+  text-align: center;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-hex-meta em {
+  color: var(--text);
+  opacity: .66;
+  font-size: clamp(11px, 1.4vw, 14px);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.stage-hex-meta.is-idle {
+  display: block;
+  text-align: center;
+  opacity: .75;
+}
+
+/* Gift feedback banner — shown only while the GIFT side cue is active. */
+
+.stage-gift {
+  border: 1px solid var(--panel-line, color-mix(in srgb, var(--accent) 55%, transparent));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--panel) 82%, #000 18%);
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .35), 0 0 var(--glow) color-mix(in srgb, var(--accent) 34%, transparent);
+  animation: stage-gift-in .34s cubic-bezier(.2, 1.3, .3, 1);
+}
+
+.stage-gift div {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.stage-gift b {
+  color: var(--accent);
+  font-size: clamp(16px, 2.2vw, 22px);
+  white-space: nowrap;
+}
+
+.stage-gift div span {
+  color: var(--text);
+  font-size: clamp(13px, 1.7vw, 17px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-gift strong {
+  color: var(--text);
+  font-size: clamp(13px, 1.7vw, 17px);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.stage-disclaimer {
+  position: absolute;
+  z-index: 2;
+  left: 80px;
+  right: 80px;
+  bottom: 36px;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text);
+  opacity: .8;
+  font-size: clamp(12px, 1.5vw, 15px);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 0 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Built-in asset-free backdrop. */
+
+.stage-bg-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.stage-bg-media video,
+.stage-bg-media img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.stage-bg-gradient {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(120% 90% at 78% 8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 55%),
+    radial-gradient(130% 110% at 8% 96%, #241a10 0%, transparent 60%),
+    linear-gradient(176deg, #12161f 0%, #0b0e13 46%, #171008 100%);
+}
+
+.stage-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: .3;
+  pointer-events: none;
+}
+
+.stage-glow-a {
+  width: 640px;
+  height: 640px;
+  left: -170px;
+  top: 320px;
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+  animation: stage-drift-a 11s ease-in-out infinite alternate;
+}
+
+.stage-glow-b {
+  width: 560px;
+  height: 560px;
+  right: -160px;
+  bottom: 140px;
+  background: color-mix(in srgb, #6f4f2a 55%, transparent);
+  animation: stage-drift-b 13s ease-in-out infinite alternate;
+}
+
+.stage-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(95% 88% at 50% 42%, transparent 58%, rgba(0, 0, 0, .42) 100%);
+  pointer-events: none;
+}
+
+@keyframes stage-live-pulse {
+  50% { opacity: .45; }
+}
+
+@keyframes stage-breathe {
+  from { opacity: .55; transform: translateX(-50%) scale(.98); }
+  to { opacity: 1; transform: translateX(-50%) scale(1.03); }
+}
+
+@keyframes stage-reveal {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes stage-cast-glow {
+  50% { box-shadow: 0 0 16px rgba(255, 118, 84, .7); }
+}
+
+@keyframes stage-gift-in {
+  from { opacity: 0; transform: translateY(-12px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes stage-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes stage-drift-a {
+  to { transform: translate(70px, 46px) scale(1.12); }
+}
+
+@keyframes stage-drift-b {
+  to { transform: translate(-64px, -40px) scale(1.08); }
+}
+
+.stage-composition-layer {
+  position: absolute;
+  overflow: hidden;
+  transform-origin: center center;
+  transition: opacity .28s ease, filter .28s ease;
+}
+
+.stage-composition-layer > .source-root,
+.stage-composition-layer > .lux3d-source {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.stage-free-media {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.stage-free-text {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  line-height: 1.2;
+  white-space: pre-wrap;
+  overflow: hidden;
+  text-shadow: 0 3px 14px rgba(0,0,0,.55);
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+.stage-free-text.align-left { justify-content: flex-start; text-align: left; }
+.stage-free-text.align-center { justify-content: center; text-align: center; }
+.stage-free-text.align-right { justify-content: flex-end; text-align: right; }
+
+.lux3d-source.lux3d-embedded {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+}

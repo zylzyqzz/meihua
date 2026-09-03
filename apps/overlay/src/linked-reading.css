@@ -1,0 +1,88 @@
+.hexagrams {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px;
+  text-align: center;
+}
+
+.hexagrams > .hexagram-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  min-height: 0;
+  flex: 1;
+}
+
+.hexagram-grid > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.hexagram-grid > div > span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.hexagram-grid > div > strong {
+  margin-top: 10px;
+  color: var(--accent);
+  font-size: .88em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.hexagram-reading-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-top: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  text-align: left;
+}
+
+.hexagram-reading-meta > div {
+  display: flex;
+  min-width: 120px;
+  flex-direction: column;
+}
+
+.hexagram-reading-meta > div span { color: var(--accent); font-weight: 900; }
+.hexagram-reading-meta > div small { color: #a99f92; font-size: .62em; letter-spacing: .16em; }
+.hexagram-reading-meta > strong { min-width: 0; font-size: 1em; line-height: 1.35; overflow-wrap: anywhere; }
+.hexagram-reading-meta > em { color: #c7bda9; font-size: .72em; font-style: normal; white-space: nowrap; }
+
+.queue > div > span {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  padding: 0 10px;
+}
+
+.queue > div > span strong,
+.queue > div > span small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.queue > div > b {
+  padding: 5px 7px;
+  border-radius: 999px;
+  color: #f4c86e;
+  background: rgba(226, 173, 66, .12);
+  font-size: .62em;
+  white-space: nowrap;
+}
+
+.queue > div.queue-waiting_question > b { color: #ffb2a4; background: rgba(255, 118, 84, .12); }
+.full-current { display: none; }
+.full-hex { top: 220px; height: 710px; }
+
+@media (max-width: 560px) {
+  .hexagram-reading-meta { grid-template-columns: 1fr; text-align: center; }
+  .hexagram-reading-meta > em { white-space: normal; }
+}

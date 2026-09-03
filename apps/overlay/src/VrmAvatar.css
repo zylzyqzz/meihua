@@ -1,0 +1,25 @@
+.vrm-avatar {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+.vrm-avatar canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.vrm-avatar[data-vrm-error="true"]::after {
+  content: "VRM 模型加载失败";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #f3b35d;
+  background: rgba(12, 14, 18, .72);
+  font-size: 18px;
+}

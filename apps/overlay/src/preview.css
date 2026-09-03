@@ -1,0 +1,21 @@
+.full-preview-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #080b0f;
+}
+
+.full-preview-canvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1080px;
+  height: 1920px;
+  transform-origin: center;
+}
+
+.full-preview-canvas .full-stage {
+  width: 1080px;
+  height: 1920px;
+}

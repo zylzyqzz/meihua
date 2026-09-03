@@ -1,0 +1,24 @@
+{
+  "name": "@meihua/overlay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src/stage.render.test.tsx"
+  },
+  "dependencies": {
+    "@google/model-viewer": "4.1.0",
+    "@meihua/answer-composer": "workspace:*",
+    "@meihua/core-types": "workspace:*",
+    "@pixiv/three-vrm": "^3.5.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "0.172.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4"
+  }
+}

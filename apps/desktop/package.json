@@ -1,0 +1,22 @@
+{
+  "name": "@meihua/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "梅花直播中控桌面端（全家桶启动器：中控 + 声音克隆 + 数字人渲染）",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable",
+    "dist:dir": "electron-builder --win dir"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "electron-builder"
+    ]
+  }
+}

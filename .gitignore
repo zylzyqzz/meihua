@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+config/local.yaml
+data/*.db
+data/*.db-*
+data/audio/
+data/secrets/
+*.log
+services/kokoro-tts/vendor/
+services/kokoro-tts/models/*.onnx
+services/kokoro-tts/models/*.bin

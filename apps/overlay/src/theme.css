@@ -1,0 +1,23 @@
+.source-root {
+  font-family: var(--font-family);
+}
+
+.avatar-stage.is-clock-waiting video,
+.avatar-stage.is-clock-waiting img {
+  filter: saturate(.82) brightness(.92);
+}
+
+.hexagrams > div {
+  opacity: 1;
+  transition: opacity .18s ease, transform .18s ease, filter .18s ease;
+}
+
+.hexagrams:has(> div.is-focused) > div:not(.is-focused) {
+  opacity: .62;
+}
+
+.hexagrams > div.is-focused {
+  opacity: 1;
+  transform: scale(1.035);
+  filter: brightness(1.18);
+}
