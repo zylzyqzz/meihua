@@ -271,6 +271,8 @@ type IngestOptions = {
   qualification?: NonNullable<Reading['qualification']>;
   queueExpireMinutes?: number;
   speechTargetSeconds?: number;
+  /** Preserve the viewer's exact comment when a qualified keyword is expanded into a clear question. */
+  rawQuestion?: string;
 };
 
 export type GiftIngestResult = {
@@ -4319,7 +4321,14 @@ export class LiveRuntime {
     const preview = this.previewSessions.get(id);
     if (!preview) return undefined;
     const base = this.getBroadcastSnapshotV2();
-    const scenarioStage: DirectorStage = preview.scenario === 'GIFT' ? 'QUALIFIED' : preview.scenario === 'QUEUE' ? 'IDLE' : preview.scenario;
+    // The workbench's default IDLE preview mirrors the real director while a
+    // session is live. Only an explicitly selected test scenario substitutes
+    // sample state. This keeps queue, current viewer, rankings and cue timing
+    // identical to the formal OBS source while still allowing draft styling.
+    const mirrorLiveDirector = this.currentSession?.status === 'LIVE' && preview.scenario === 'IDLE';
+    const scenarioStage: DirectorStage = mirrorLiveDirector
+      ? base.stage
+      : preview.scenario === 'GIFT' ? 'QUALIFIED' : preview.scenario === 'QUEUE' ? 'IDLE' : preview.scenario;
     const recent = this.persistence.listReadings({ limit: 100 }).find((item) => item.meihua && item.answer);
     const now = Date.now();
     const sampleReading: Reading = recent ?? {
@@ -4335,8 +4344,12 @@ export class LiveRuntime {
       },
     };
     const scenariosWithReading: Array<PreviewSession['scenario']> = ['SELECTED', 'CASTING', 'INTERPRETING', 'COMPOSING', 'SYNTHESIZING', 'SPEAKING', 'FINISH', 'ERROR'];
-    const reading = scenariosWithReading.includes(preview.scenario) || preview.scenario === 'GIFT' ? sampleReading : undefined;
-    const speechPlan = reading?.answer ? buildSpeechPlan(reading.id, reading.answer, reading.tts?.durationMs ?? 12_000) : undefined;
+    const reading = mirrorLiveDirector
+      ? base.reading
+      : scenariosWithReading.includes(preview.scenario) || preview.scenario === 'GIFT' ? sampleReading : undefined;
+    const speechPlan = mirrorLiveDirector
+      ? base.speechPlan
+      : reading?.answer ? buildSpeechPlan(reading.id, reading.answer, reading.tts?.durationMs ?? 12_000) : undefined;
     const cue: DirectorCue = {
       cueId: `preview-cue-${id}`, sessionId: `preview-${id}`, readingId: reading?.id, sequence: 1,
       stage: scenarioStage, track: 'MAIN', startsAt: now - (scenarioStage === 'SPEAKING' ? 1_500 : 0),
@@ -4348,16 +4361,18 @@ export class LiveRuntime {
       { id: 'preview-q2', username: '有缘人丙', eventSource: 'MOCK' as const, source: 'LIKE' as const, status: 'QUEUED' as const, label: '点赞达到 100 次', question: '现在适合换工作吗？', position: 2, priority: 'NORMAL' as const, speechTargetSeconds: 20, createdAt: now - 25_000 },
     ];
     return {
-      ...base, sequence: preview.updatedAt, serverTime: now, stage: scenarioStage, activeCue: cue,
+      ...base, sequence: Math.max(base.sequence, preview.updatedAt), serverTime: now, stage: scenarioStage, activeCue: mirrorLiveDirector ? base.activeCue : cue,
       reading, speechPlan,
       queue: base.queue.length ? base.queue : preview.scenario === 'QUEUE' || preview.scenario === 'GIFT' ? [
         { readingId: 'preview-q1', username: 'NextViewer', position: 1, priority: 'HIGH' },
         { readingId: 'preview-q2', username: 'WaitingViewer', position: 2, priority: 'NORMAL' },
       ] : [],
       qualificationQueue: base.qualificationQueue.length ? base.qualificationQueue : preview.scenario === 'QUEUE' || preview.scenario === 'GIFT' ? previewQueue : [],
-      sideCues: preview.scenario === 'GIFT' ? [{ ...cue, cueId: `preview-gift-${id}`, track: 'GIFT', payload: { preview: true, username: 'GiftViewer', giftName: 'Rose', action: 'APPLIED_TO_QUEUE', speechTargetSeconds: 40 } }] : [],
+      sideCues: mirrorLiveDirector
+        ? base.sideCues
+        : preview.scenario === 'GIFT' ? [{ ...cue, cueId: `preview-gift-${id}`, track: 'GIFT', payload: { preview: true, username: 'GiftViewer', giftName: 'Rose', action: 'APPLIED_TO_QUEUE', speechTargetSeconds: 40 } }] : [],
       profileVersion: { ...this.draftProfileVersion, profile: preview.profile },
-      audioUrl: undefined,
+      audioUrl: mirrorLiveDirector ? base.audioUrl : undefined,
     };
   }
 
@@ -4832,7 +4847,7 @@ export class LiveRuntime {
     this.publishSnapshot();
   }
 
-  private commentMatches(message: string, rule: CommentRule): { matched: true; question?: string } | undefined {
+  private commentMatches(message: string, rule: CommentRule): { matched: true; question?: string; keyword?: string } | undefined {
     const source = message.trim();
     // 空白设置：关键词留空 = 匹配任何评论（运营口径：任何评论都算一次提问）
     if (!rule.keywords.length) return { matched: true, question: rule.stripKeyword ? source : source };
@@ -4844,13 +4859,69 @@ export class LiveRuntime {
         try { matched = new RegExp(keyword, 'iu').test(source); } catch { matched = false; }
       }
       if (!matched) continue;
-      if (!rule.stripKeyword) return { matched: true, question: source };
+      if (!rule.stripKeyword) return { matched: true, question: source, keyword };
       const stripped = rule.matchMode === 'REGEX'
         ? (() => { try { return source.replace(new RegExp(keyword, 'iu'), '').trim(); } catch { return source; } })()
         : source.replace(new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'iu'), '').replace(/^\s*[:：,，-]\s*/, '').trim();
-      return { matched: true, question: stripped || undefined };
+      return { matched: true, question: stripped || undefined, keyword };
     }
     return undefined;
+  }
+
+  /**
+   * A viewer has already paid/earned the right to ask. Once their comment also
+   * matches an operator-configured intent keyword, accept terse topic phrases
+   * such as "career", "reading" or "帮我测一下财运" as a real question.
+   * Safety, advertising, empty input and maximum-length checks still win.
+   */
+  private resolveQualifiedKeywordQuestion(
+    message: string,
+    match: { matched: true; question?: string; keyword?: string } | undefined,
+  ): { question: string; moderation: ReturnType<typeof moderateQuestion>; normalizedFromKeyword: boolean } {
+    const original = (match?.question ?? message).trim();
+    const initial = moderateQuestion(original, this.settings.moderation);
+    if (initial.decision === 'ALLOW' || !match) {
+      return { question: initial.normalizedQuestion, moderation: initial, normalizedFromKeyword: false };
+    }
+
+    // Keyword matching may only relax question *shape*. It must never bypass
+    // policy or turn punctuation/emoji into a divination request.
+    if (!['too_short', 'not_a_clear_question'].includes(initial.reason)) {
+      return { question: initial.normalizedQuestion, moderation: initial, normalizedFromKeyword: false };
+    }
+    const meaningful = original.replace(/[\p{P}\p{S}\s]/gu, '');
+    if (!meaningful) {
+      return { question: initial.normalizedQuestion, moderation: initial, normalizedFromKeyword: false };
+    }
+
+    const bareReadingIntents = new Set([
+      '测算', '测一卦', '算一卦', '起卦', '占卜', '解卦', '问卦', '梅花易数', '看卦', '卦象', '卦辞',
+      'reading', 'fortune reading', 'divination', 'hexagram', 'meihua', 'cast for me', 'calculate for me', 'read me', 'give me a reading', 'please read',
+      'lectura', 'adivinación', 'lecture', 'deutung', 'wahrsagung', '占って', '占い', '易占', '점쳐', '운세', '괘',
+      'leitura', 'adivinhação', 'гадание', 'предсказание',
+    ]);
+    const normalizedKeyword = match.keyword?.trim().toLocaleLowerCase();
+    const isBareIntent = Boolean(normalizedKeyword)
+      && original.toLocaleLowerCase() === normalizedKeyword
+      && bareReadingIntents.has(normalizedKeyword!);
+
+    let candidate = original;
+    if (isBareIntent || [...meaningful].length < this.settings.moderation.minChars) {
+      if (/\p{Script=Hangul}/u.test(original)) candidate = '현재 제 전반적인 운세와 가장 주의해야 할 점은 무엇인가요?';
+      else if (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(original)) candidate = '今の全体的な運勢と、最も注意すべきことは何ですか？';
+      else if (/\p{Script=Han}/u.test(original)) candidate = '请为我测算当前整体运势，以及现在最需要注意的事情？';
+      else if (/\p{Script=Cyrillic}/u.test(original)) candidate = 'Что мне сейчас важнее всего учитывать в моей общей ситуации?';
+      else candidate = 'What is the most important guidance for my current overall situation?';
+    } else if (!/[?？]\s*$/u.test(candidate)) {
+      candidate = `${candidate}?`;
+    }
+
+    const moderation = moderateQuestion(candidate, this.settings.moderation);
+    return {
+      question: moderation.normalizedQuestion,
+      moderation,
+      normalizedFromKeyword: moderation.decision === 'ALLOW' && moderation.normalizedQuestion !== initial.normalizedQuestion,
+    };
   }
 
   private createCommentQualification(event: LiveChatEvent, rule: CommentRule, userKey: string): void {
@@ -4956,20 +5027,31 @@ export class LiveRuntime {
     const commentMatch = commentRule ? this.commentMatches(event.message, commentRule) : undefined;
 
     if (pendingGift || pendingGrant) {
-      const question = commentMatch?.question ?? event.message;
-      const moderation = moderateQuestion(question, this.settings.moderation);
+      const resolved = this.resolveQualifiedKeywordQuestion(event.message, commentMatch);
+      const { question, moderation } = resolved;
       if (moderation.decision !== 'ALLOW') {
         this.persistence.recordEvent('QUALIFIED_VIEWER_COMMENT_NOT_A_QUESTION', {
           eventId: event.eventId, username: event.username, qualification: pendingGift ? 'GIFT' : pendingGrant?.kind,
-          reason: moderation.reason,
+          reason: moderation.reason, keyword: commentMatch?.keyword,
         });
         return undefined;
+      }
+      if (resolved.normalizedFromKeyword) {
+        this.persistence.recordEvent('QUALIFIED_KEYWORD_QUESTION_NORMALIZED', {
+          eventId: event.eventId,
+          username: event.username,
+          qualification: pendingGift ? 'GIFT' : pendingGrant?.kind,
+          keyword: commentMatch?.keyword,
+          originalQuestion: event.message,
+          normalizedQuestion: question,
+        });
       }
       const reading = await this.ingest({ ...event, message: question }, pendingGrant?.priority ?? 'NORMAL', pendingGrant ? {
         qualification: { kind: pendingGrant.kind, ruleId: pendingGrant.ruleId, label: pendingGrant.label },
         queueExpireMinutes: this.settings.queue.expireMinutes,
         speechTargetSeconds: pendingGrant.speechTargetSeconds,
-      } : {});
+        rawQuestion: event.message,
+      } : { rawQuestion: event.message });
       if (pendingGrant && reading.status === 'QUEUED') {
         this.persistence.markQualificationGrantApplied(pendingGrant.id, reading.id);
         this.persistence.recordEvent('QUALIFICATION_GRANT_CLAIMED', { grantId: pendingGrant.id, kind: pendingGrant.kind }, reading.id);
@@ -5064,7 +5146,7 @@ export class LiveRuntime {
       source: event.source,
       username: event.username.trim() || '匿名观众',
       userId: event.userId,
-      rawQuestion: event.message,
+      rawQuestion: options.rawQuestion ?? event.message,
       status: 'RECEIVED',
       priority,
       qualification: options.qualification ?? (event.source === 'manual' ? { kind: 'MANUAL', ruleId: 'manual', label: '后台人工加入' } : undefined),
@@ -6522,6 +6604,9 @@ export class LiveRuntime {
     const message = this.createV2Message(type, payload);
     for (const socket of this.overlayClients) this.send(socket, message);
     for (const socket of this.adminClients) this.send(socket, message);
+    // Draft previews use their own profile, but live business data must move in
+    // lockstep with the formal OBS source instead of freezing at mount time.
+    for (const id of this.previewClients.keys()) this.broadcastPreview(id);
   }
 
   /** 后台专用 WS 通道：与 overlay 分离，不注册 SOURCE_HELLO，不影响来源健康统计。 */

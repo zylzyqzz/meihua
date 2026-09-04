@@ -155,6 +155,25 @@ describe('V2 director and synchronized plan', () => {
     expect(runtime.getPreviewSnapshot(idle.previewSessionId)).toMatchObject({ stage: 'IDLE', reading: undefined, speechPlan: undefined });
   });
 
+  it('keeps the default workbench preview synchronized with live OBS data', async () => {
+    const runtime = createRuntime();
+    runtime.startSession({ mode: 'REHEARSAL' });
+    runtime.pause();
+    const preview = runtime.createPreviewSession({ scenario: 'IDLE' });
+    await runtime.ingestGift({
+      source: 'tikfinity', eventId: 'preview-live-gift', userId: 'preview-viewer', username: 'PreviewViewer',
+      giftId: '5655', giftName: 'Rose', repeatCount: 4, repeatEnd: true, timestamp: Date.now(), raw: {},
+    });
+    const formal = runtime.getBroadcastSnapshotV2();
+    const mirrored = runtime.getPreviewSnapshot(preview.previewSessionId)!;
+    expect(mirrored.stage).toBe(formal.stage);
+    expect(mirrored.queue).toEqual(formal.queue);
+    expect(mirrored.qualificationQueue).toEqual(formal.qualificationQueue);
+    expect(mirrored.giftRanking).toEqual(formal.giftRanking);
+    expect(mirrored.engagementRanking).toEqual(formal.engagementRanking);
+    expect(mirrored.sideCues).toEqual(formal.sideCues);
+  });
+
   it('validates media and deduplicates by content hash', () => {
     const runtime = createRuntime();
     const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lRHF2wAAAABJRU5ErkJggg==';

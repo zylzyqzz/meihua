@@ -999,11 +999,13 @@ function StudioWorkbenchView({
           <div className="mw-canvas-caption">
             <span>
               <i />
-              草稿预览 · 操作后自动同步
+              {livePreview ? "直播数据镜像 · 与 OBS 同步" : "草稿预览 · 操作后自动同步"}
             </span>
             <b>
               {livePreview
-                ? "直播画面不受影响 · 发布后生效"
+                ? saveState === "DIRTY"
+                  ? "正在预览未发布布局 · OBS 仍使用已发布版本"
+                  : "布局与实时数据均来自当前 OBS 版本"
                 : "安全区 1080 × 1920"}
             </b>
           </div>
@@ -1330,7 +1332,7 @@ function StudioWorkbenchView({
             )
           }
         >
-          打开 OBS 正式预览
+          打开草稿预览
         </button>
         <button
           onClick={() =>
@@ -1341,7 +1343,7 @@ function StudioWorkbenchView({
             )
           }
         >
-          查看已发布
+          打开 OBS 正式预览
         </button>
         <button
           className="mw-advanced-toggle"

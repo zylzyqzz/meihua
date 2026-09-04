@@ -153,6 +153,49 @@ describe('LiveRuntime intake controls', () => {
     expect(reading).toMatchObject({ status: 'QUEUED', qualification: { kind: 'LIKE', ruleId: 'likes-100' } });
   });
 
+  it('accepts configured topic keywords as questions after the viewer is qualified', async () => {
+    const runtime = createRuntime();
+    runtime.startSession({ mode: 'REHEARSAL' });
+    runtime.pause();
+
+    await runtime.ingestLike({ source: 'tikfinity', eventId: 'like-career', userId: 'keyword-career', username: 'CareerViewer', likeCount: 100, timestamp: Date.now(), raw: {} });
+    const career = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'chat-career', userId: 'keyword-career', username: 'CareerViewer', message: 'career', timestamp: Date.now() + 1, raw: {} });
+
+    await runtime.ingestLike({ source: 'tikfinity', eventId: 'like-cn', userId: 'keyword-cn', username: 'ChineseViewer', likeCount: 100, timestamp: Date.now() + 2, raw: {} });
+    const chinese = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'chat-cn', userId: 'keyword-cn', username: 'ChineseViewer', message: '帮我测一下财运', timestamp: Date.now() + 3, raw: {} });
+
+    await runtime.ingestLike({ source: 'tikfinity', eventId: 'like-reading', userId: 'keyword-reading', username: 'ReadingViewer', likeCount: 100, timestamp: Date.now() + 4, raw: {} });
+    const reading = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'chat-reading', userId: 'keyword-reading', username: 'ReadingViewer', message: 'reading', timestamp: Date.now() + 5, raw: {} });
+
+    expect(career).toMatchObject({ status: 'QUEUED', rawQuestion: 'career', normalizedQuestion: 'career?' });
+    expect(chinese).toMatchObject({ status: 'QUEUED', rawQuestion: '帮我测一下财运', normalizedQuestion: '帮我测一下财运?' });
+    expect(reading).toMatchObject({
+      status: 'QUEUED',
+      rawQuestion: 'reading',
+      normalizedQuestion: 'What is the most important guidance for my current overall situation?',
+    });
+  });
+
+  it('does not let keyword recognition bypass empty or advertising safety checks', async () => {
+    const runtime = createRuntime();
+    runtime.startSession({ mode: 'REHEARSAL' });
+    runtime.pause();
+
+    await runtime.ingestLike({ source: 'tikfinity', eventId: 'like-symbol', userId: 'symbol-user', username: 'SymbolViewer', likeCount: 100, timestamp: Date.now(), raw: {} });
+    const symbol = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'chat-symbol', userId: 'symbol-user', username: 'SymbolViewer', message: '?', timestamp: Date.now() + 1, raw: {} });
+
+    await runtime.ingestLike({ source: 'tikfinity', eventId: 'like-ad', userId: 'ad-user', username: 'AdViewer', likeCount: 100, timestamp: Date.now() + 2, raw: {} });
+    const advertising = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'chat-ad', userId: 'ad-user', username: 'AdViewer', message: 'career https://spam.example', timestamp: Date.now() + 3, raw: {} });
+
+    expect(symbol).toBeUndefined();
+    expect(advertising).toBeUndefined();
+    expect(runtime.getPendingQualifications()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ username: 'SymbolViewer', kind: 'LIKE' }),
+      expect.objectContaining({ username: 'AdViewer', kind: 'LIKE' }),
+    ]));
+    expect(runtime.getQueue()).toHaveLength(0);
+  });
+
   it('requires a like or gift entitlement before a clear comment can enter the queue', async () => {
     const runtime = createRuntime();
     runtime.startSession({ mode: 'REHEARSAL' });
