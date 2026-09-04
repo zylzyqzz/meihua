@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SqlitePersistence } from '@meihua/persistence';
 import { normalizeTikfinityEnvelope } from '@meihua/adapters';
+import type { TtsAdapter } from '@meihua/adapters';
 import { LiveRuntime } from './runtime.js';
 
 const runtimes: LiveRuntime[] = [];
@@ -13,12 +14,36 @@ afterEach(() => {
   while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true });
 });
 
+function createDeterministicTts(directory: string): TtsAdapter {
+  mkdirSync(directory, { recursive: true });
+  let sequence = 0;
+  return {
+    id: 'deterministic-e2e-tts',
+    health: () => ({ id: 'deterministic-e2e-tts', label: 'Deterministic E2E TTS', status: 'READY', message: 'Test WAV generator ready', configured: true }),
+    async synthesize(input) {
+      const durationMs = Math.max(3_000, Math.round((input.targetSeconds ?? 10) * 1_000));
+      const sampleRate = 16_000;
+      const samples = Math.round(sampleRate * durationMs / 1_000);
+      const pcm = Buffer.alloc(samples * 2);
+      const wav = Buffer.alloc(44 + pcm.length);
+      wav.write('RIFF'); wav.writeUInt32LE(36 + pcm.length, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(sampleRate, 24); wav.writeUInt32LE(sampleRate * 2, 28);
+      wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(pcm.length, 40); pcm.copy(wav, 44);
+      const fileName = `${input.readingId.replace(/[^a-z0-9_-]/gi, '_')}-${sequence += 1}.wav`;
+      writeFileSync(join(directory, fileName), wav);
+      return { audioPath: `/api/audio/${fileName}`, durationMs, providerId: 'deterministic-e2e-tts', targetLocale: input.targetLocale as never, engineVersion: 'test-v1' };
+    },
+  };
+}
+
 function createRuntime() {
   const directory = mkdtempSync(join(tmpdir(), 'meihua-e2e-'));
   directories.push(directory);
+  const audioDirectory = join(directory, 'audio');
   const runtime = new LiveRuntime(new SqlitePersistence(':memory:'), {
-    audioDirectory: join(directory, 'audio'),
+    audioDirectory,
     mediaDirectory: join(directory, 'media'),
+    ttsAdapter: createDeterministicTts(audioDirectory),
     audioPlayer: {
       async play({ signal, onStarted }) {
         if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
@@ -49,13 +74,13 @@ async function waitFor<T>(predicate: () => T | undefined, timeoutMs = 25_000): P
 describe('V2.2 end-to-end replay chain', () => {
   it('runs gift → qualification → question → queue → cast → speech → ranking → stage sync', async () => {
     const runtime = createRuntime();
-    runtime.updateSettings({ reading: { speechTargetSeconds: 10, watchdogMs: 45_000 } });
+    runtime.updateSettings({ providers: { llm: { adapter: 'rule-based' } }, presentation: { mode: 'AUDIO_ONLY' }, reading: { speechTargetSeconds: 10, watchdogMs: 45_000 } });
     expect(runtime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
 
     // 1. Gift with streak final frame lands as a pending entitlement.
     const gift = await runtime.ingestGift({
       source: 'mock', eventId: 'e2e-gift', userId: 'e2e-user', username: 'E2EViewer',
-      giftId: '5655', giftName: 'Rose', repeatCount: 2, repeatEnd: true, timestamp: Date.now(), raw: {},
+      giftId: '5655', giftName: 'Rose', repeatCount: 4, repeatEnd: true, timestamp: Date.now(), raw: {},
     });
     expect(gift.accepted).toBe(true);
     expect(gift.action).toBe('PENDING_QUESTION');
@@ -87,7 +112,7 @@ describe('V2.2 end-to-end replay chain', () => {
     const stages = runtime.getDirectorCues().map((cue) => cue.stage);
     expect(stages).toEqual(expect.arrayContaining(['SELECTED', 'CASTING', 'INTERPRETING', 'SPEAKING', 'FINISH']));
     const report = runtime.getSessionReport(runtime.getCurrentSession()!.sessionId);
-    expect(report?.giftRanking.some((entry) => entry.username === 'E2EViewer' && entry.points === 2)).toBe(true);
+    expect(report?.giftRanking.some((entry) => entry.username === 'E2EViewer' && entry.points === 4)).toBe(true);
 
     // 4. Stage data: active reading is visible during the final stages; the
     // gift side cue carried a Track GIFT message for the banner.
@@ -137,10 +162,10 @@ describe('V2.2 end-to-end replay chain', () => {
       message: 'Should I keep going with my training plan?', timestamp: Date.now() + 3, raw: {},
     });
     expect(claimed?.qualification?.kind).toBe('LIKE');
-    expect(claimed?.speechTargetSeconds).toBe(28);
+    expect(claimed?.speechTargetSeconds).toBe(30);
   });
 
-  it('matches comment rules in CONTAINS / EXACT / REGEX modes and strips the keyword', async () => {
+  it('uses comment rules only to recognize questions and never grants entitlement by comment alone', async () => {
     const runtime = createRuntime();
     expect(runtime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
     runtime.updateSettings({
@@ -153,15 +178,16 @@ describe('V2.2 end-to-end replay chain', () => {
       },
     });
     const contains = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 't1', userId: 'u1', username: 'ChatUser1', message: 'reading Should I move to the city next year?', timestamp: Date.now(), raw: {} });
-    expect(contains?.normalizedQuestion).toContain('Should I move to the city next year?');
+    expect(contains).toBeUndefined();
     const exactMatch = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 't2', userId: 'u2', username: 'ChatUser2', message: 'Should I go?', timestamp: Date.now() + 1, raw: {} });
-    expect(exactMatch).toBeDefined();
+    expect(exactMatch).toBeUndefined();
     // EXACT mode with a non-matching text creates no reading and no qualification.
     const exactMiss = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 't3', userId: 'u3', username: 'ChatUser3', message: 'should I go now', timestamp: Date.now() + 2, raw: {} });
     expect(exactMiss).toBeUndefined();
     const regex = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 't4', userId: 'u4', username: 'ChatUser4', message: 'ask Should I move to the city?', timestamp: Date.now() + 3, raw: {} });
-    expect(regex?.rawQuestion).toContain('Should I move to the city?');
-    expect(regex?.moderationDecision).toBe('ALLOW');
+    expect(regex).toBeUndefined();
+    expect(runtime.getPendingQualifications()).toHaveLength(0);
+    expect(runtime.getQueue()).toHaveLength(0);
   });
 
   it('promotes a queued reading and rejects duplicate source events', async () => {
@@ -206,10 +232,11 @@ describe('V2.2 end-to-end replay chain', () => {
     const firstRuntime = new LiveRuntime(new SqlitePersistence(dbPath), {
       audioDirectory: join(directory, 'audio'),
       mediaDirectory: join(directory, 'media'),
+      ttsAdapter: createDeterministicTts(join(directory, 'audio')),
       audioPlayer: fakePlayer,
     });
     runtimes.push(firstRuntime);
-    firstRuntime.updateSettings({ reading: { speechTargetSeconds: 10, watchdogMs: 45_000 } });
+    firstRuntime.updateSettings({ providers: { llm: { adapter: 'rule-based' } }, presentation: { mode: 'AUDIO_ONLY' }, reading: { speechTargetSeconds: 10, watchdogMs: 45_000 } });
     expect(firstRuntime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
     const reading = await firstRuntime.ingest({
       source: 'mock', eventId: 'recover-1', username: 'RecoverUser',
@@ -225,6 +252,7 @@ describe('V2.2 end-to-end replay chain', () => {
     const restarted = new LiveRuntime(new SqlitePersistence(dbPath), {
       audioDirectory: join(directory, 'audio'),
       mediaDirectory: join(directory, 'media'),
+      ttsAdapter: createDeterministicTts(join(directory, 'audio')),
       audioPlayer: fakePlayer,
     });
     runtimes.push(restarted);

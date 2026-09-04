@@ -54,8 +54,8 @@ const defaultCompositionLayout: Record<SceneModuleId, { x: number; y: number; wi
 };
 
 const moduleNames: Record<SceneModuleId, string> = {
-  background: '直播背景', effects: '画面特效', status: '直播状态', 'current-viewer': '当前测算用户',
-  'gift-alert': '礼物窗口', avatar: '数字人画面', queue: '资格与排队名单', lux3d: '玄金罗盘',
+  background: '直播背景', effects: '画面特效', status: '直播状态', 'current-viewer': '当前用户 · 问题 · 卦名',
+  'gift-alert': '礼物窗口', avatar: '播报画面（视频 / 数字人）', queue: '资格与排队名单', lux3d: '玄金罗盘',
   hexagram: '卦象与当前测算', subtitles: '口播字幕', 'gift-ranking': '礼物榜',
   'engagement-ranking': '互动榜', sticker: '自定义贴纸', disclaimer: '免责声明',
 };
@@ -64,7 +64,7 @@ export function createDefaultSceneComposition(profile?: Pick<SceneProfile, 'sour
   const layers: SceneLayer[] = sceneModuleIds.map((moduleId) => {
     const layout = defaultCompositionLayout[moduleId];
     const source = moduleId === 'lux3d' ? undefined : profile?.sources[moduleId];
-    const defaultVisible = !['current-viewer', 'subtitles', 'gift-ranking', 'engagement-ranking', 'sticker'].includes(moduleId);
+    const defaultVisible = !['gift-ranking', 'engagement-ranking', 'sticker'].includes(moduleId);
     return {
       id: `module-${moduleId}`,
       kind: 'MODULE' as const,
@@ -201,8 +201,8 @@ export function createDefaultSceneProfile(settings: AppSettings): SceneProfile {
       selectedGiftId: sourceId === 'gift-alert' ? settings.gifts.rules.find((rule) => rule.enabled)?.giftId : undefined,
       selectedGiftName: sourceId === 'gift-alert' ? settings.gifts.rules.find((rule) => rule.enabled)?.giftName : undefined,
       selectedGiftSpeechSeconds: sourceId === 'gift-alert' ? settings.gifts.rules.find((rule) => rule.enabled)?.speechTargetSeconds : undefined,
-      giftMessage: sourceId === 'gift-alert' ? 'Unlock a private Meihua reading' : undefined,
-      giftOffers: sourceId === 'gift-alert' ? settings.gifts.rules.filter((rule) => rule.enabled && rule.giftId).slice(0, 1).map((rule) => ({ id: `gift-offer-${rule.giftId}`, giftId: rule.giftId!, giftName: rule.giftName, speechTargetSeconds: rule.speechTargetSeconds, message: `${rule.speechTargetSeconds}-second private reading` })) : undefined,
+      giftMessage: sourceId === 'gift-alert' ? '100 likes or 4 Roses unlock a reading. Then ask one clear question.' : undefined,
+      giftOffers: sourceId === 'gift-alert' ? settings.gifts.rules.filter((rule) => rule.enabled && rule.giftId).slice(0, 2).map((rule) => ({ id: `gift-offer-${rule.giftId}`, giftId: rule.giftId!, giftName: rule.giftName, speechTargetSeconds: rule.speechTargetSeconds, message: `${rule.minRepeatCount}× ${rule.giftName} · ${rule.speechTargetSeconds}-second reading` })) : undefined,
     } satisfies ObsSourceConfig];
   })) as Record<ObsSourceId, ObsSourceConfig>;
   const profile: SceneProfile = {

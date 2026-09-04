@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import './styles.css';
 import './ui-refresh.css';
+import './production-refinement.css';
 
 class AppErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
   state: { error?: Error } = {};

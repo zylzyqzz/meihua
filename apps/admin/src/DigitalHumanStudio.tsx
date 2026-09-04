@@ -15,14 +15,35 @@ const sections: Array<{ id: Section; label: string; note: string }> = [
 
 const speechTargetPresets = [20, 30, 40, 60] as const;
 
-function speechBudgetDescription(seconds: number): string {
+function DigitalHumanEnableSwitch() {
+  const [settings, setSettings] = useState<AppSettings>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void api<AppSettings>('/api/settings').then(setSettings); }, []);
+  if (!settings) return null;
+  const enabled = settings.presentation.mode === 'DIGITAL_HUMAN';
+  const toggle = async () => {
+    setBusy(true);
+    try {
+      const next = await api<AppSettings>('/api/settings', {
+        method: 'PUT',
+        body: JSON.stringify({ presentation: { mode: enabled ? 'VIDEO_ONCE' : 'DIGITAL_HUMAN' } }),
+      });
+      setSettings(next);
+    } finally { setBusy(false); }
+  };
+  return <div className={`dh-enable-switch ${enabled ? 'is-enabled' : ''}`}>
+    <div><b>实时数字人</b><small>{enabled ? '已启用；开播前会严格检查人物与渲染服务' : '默认停用；当前走预录视频单次播放，不影响声音链路'}</small></div>
+    <button type="button" disabled={busy} onClick={() => void toggle()}>{enabled ? '停用并改用视频' : '启用实时数字人'}</button>
+  </div>;
+}
+
+function speechBudgetDescription(seconds: number, speechRate: number): string {
   const target = Math.max(10, Math.min(120, Math.round(seconds)));
-  // Keep the operator preview aligned with answer-composer's direct-result
-  // content contract: 20/30 seconds now reserve 60% more spoken units.
-  const contentMultiplier = 1.6;
-  const zh = Math.round(target * 2.2 * contentMultiplier);
-  const en = Math.round(target * 1.05 * contentMultiplier);
-  return `中文约 ${Math.floor(zh * 0.88)}–${Math.ceil(zh * 1.12)} 字（目标 ${zh} 字）；英文约 ${Math.floor(en * 0.88)}–${Math.ceil(en * 1.12)} 词`;
+  // Keep this operator preview identical to answer-composer. The final WAV
+  // duration remains authoritative and may trigger one more text/TTS pass.
+  const speed = Math.max(0.25, Math.min(2, speechRate || 1));
+  const spokenUnits = Math.round(target * speed * 2.5 * 1.6);
+  return `约 ${Math.floor(spokenUnits * 0.88)}–${Math.ceil(spokenUnits * 1.12)} 个播报单位（目标 ${spokenUnits}；中文按字、英文按词）`;
 }
 
 function TextModelConfig() {
@@ -93,7 +114,7 @@ function TextModelConfig() {
       <label>模型 ID<input value={llm.model} placeholder="例如 gpt-4o-mini" disabled={llm.adapter === 'rule-based'} onChange={(event) => setSettings({ ...settings, providers: { ...settings.providers, llm: { ...llm, model: event.target.value } } })} /></label>
       <label className="wide">接口地址<input value={llm.baseUrl} placeholder="https://api.openai.com/v1" disabled={llm.adapter === 'rule-based'} onChange={(event) => setSettings({ ...settings, providers: { ...settings.providers, llm: { ...llm, baseUrl: event.target.value } } })} /></label>
       <label>请求超时（毫秒）<input type="number" min={250} max={20000} value={settings.moderation.llmTimeoutMs} onChange={(event) => setSettings({ ...settings, moderation: { ...settings.moderation, llmTimeoutMs: Number(event.target.value) } })} /></label>
-      <label>单条话术时长<select value={speechTargetSeconds} onChange={(event) => setSettings({ ...settings, reading: { ...settings.reading, speechTargetSeconds: Number(event.target.value) } })}>{durationOptions.map((seconds) => <option key={seconds} value={seconds}>{seconds} 秒{seconds === speechTargetSeconds ? '（当前）' : ''}</option>)}</select><small>{speechBudgetDescription(speechTargetSeconds)}；模型会按此预算生成，音频也按此时长校准。</small></label>
+      <label>单条话术时长<select value={speechTargetSeconds} onChange={(event) => setSettings({ ...settings, reading: { ...settings.reading, speechTargetSeconds: Number(event.target.value) } })}>{durationOptions.map((seconds) => <option key={seconds} value={seconds}>{seconds} 秒{seconds === speechTargetSeconds ? '（当前）' : ''}</option>)}</select><small>{speechBudgetDescription(speechTargetSeconds, settings.providers.tts.speed)}；模型会按此预算生成，最终以 WAV 实际时长校准。</small></label>
       <label className="wide">API Key<input type="password" autoComplete="new-password" value={apiKey} placeholder={secretStatus?.llm.configured ? '已由 Windows DPAPI 加密保存；留空不覆盖' : '输入阿里云百炼 API Key'} disabled={llm.adapter === 'rule-based'} onChange={(event) => setApiKey(event.target.value)} /><small>密钥不会写入前端配置，保存后只存 Windows DPAPI。</small></label>
       <div className="dh-text-model-actions"><button disabled={Boolean(busy)} onClick={() => void save(false)}>{busy === 'save' ? '保存中…' : '保存配置'}</button><button className="primary" disabled={Boolean(busy) || llm.adapter === 'rule-based' || !llm.baseUrl.trim() || !llm.model.trim()} onClick={() => void save(true)}>{busy === 'test' ? '测试中…' : '保存并测试连接'}</button></div>
     </div>
@@ -318,6 +339,7 @@ export function DigitalHumanStudio() {
         <span>当前声音 <b>{store.activeVoice?.name ?? '未选择'}</b></span>
       </div>
     </header>
+    <DigitalHumanEnableSwitch />
     <TextModelConfig />
     <CloneApiConfig />
     <CloudAssetConfig />

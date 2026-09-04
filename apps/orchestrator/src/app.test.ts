@@ -27,12 +27,12 @@ describe('orchestrator HTTP API', () => {
     const chat = await app.inject({ method: 'POST', url: '/api/mock/chat', payload: { username: 'APIViewer', question: '现在适合推进这个计划吗？' } });
     expect(chat.statusCode).toBe(201);
     const reading = chat.json();
-    const gift = await app.inject({ method: 'POST', url: '/api/gifts/mock', payload: { username: 'APIViewer', giftId: 'perfume', giftName: 'Perfume', repeatCount: 1 } });
+    const gift = await app.inject({ method: 'POST', url: '/api/gifts/mock', payload: { username: 'APIViewer', giftId: '5655', giftName: 'Rose', repeatCount: 4 } });
     expect(gift.json()).toMatchObject({ action: 'APPLIED_TO_QUEUE', readingId: reading.id });
     const queue = await app.inject({ method: 'GET', url: '/api/queue' });
-    expect(queue.json()[0]).toMatchObject({ readingId: reading.id, priority: 'MANUAL', speechTargetSeconds: 60 });
+    expect(queue.json()[0]).toMatchObject({ readingId: reading.id, priority: 'HIGH', speechTargetSeconds: 30 });
     const state = await app.inject({ method: 'GET', url: '/api/state' });
-    expect(state.json().giftAlert).toMatchObject({ username: 'APIViewer', giftName: 'Perfume', action: 'APPLIED_TO_QUEUE' });
+    expect(state.json().giftAlert).toMatchObject({ username: 'APIViewer', giftName: 'Rose', action: 'APPLIED_TO_QUEUE' });
   });
 
   it('validates malformed operator input without mutating the queue', async () => {

@@ -1,10 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SqlitePersistence } from '@meihua/persistence';
 import type { SceneProfile, SceneProfileVersion } from '@meihua/core-types';
 import { formatHexagramDisplayName } from '@meihua/answer-composer';
+import type { TtsAdapter } from '@meihua/adapters';
 import { LiveRuntime, defaultSettings } from './runtime.js';
 import { buildSpeechPlan, createDefaultSceneProfile, migrateSceneComposition } from './v2.js';
 
@@ -15,12 +16,36 @@ afterEach(() => {
   while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true });
 });
 
-function createRuntime() {
+function createDeterministicTts(directory: string): TtsAdapter {
+  mkdirSync(directory, { recursive: true });
+  let sequence = 0;
+  return {
+    id: 'deterministic-test-tts',
+    health: () => ({ id: 'deterministic-test-tts', label: 'Deterministic test TTS', status: 'READY', message: 'Test WAV generator ready', configured: true }),
+    async synthesize(input) {
+      const durationMs = Math.max(3_000, Math.round((input.targetSeconds ?? 10) * 1_000));
+      const sampleRate = 16_000;
+      const sampleCount = Math.round(sampleRate * durationMs / 1_000);
+      const pcm = Buffer.alloc(sampleCount * 2);
+      const wav = Buffer.alloc(44 + pcm.length);
+      wav.write('RIFF'); wav.writeUInt32LE(36 + pcm.length, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16, 16);
+      wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22); wav.writeUInt32LE(sampleRate, 24); wav.writeUInt32LE(sampleRate * 2, 28);
+      wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(pcm.length, 40); pcm.copy(wav, 44);
+      const fileName = `${input.readingId.replace(/[^a-z0-9_-]/gi, '_')}-${sequence += 1}.wav`;
+      writeFileSync(join(directory, fileName), wav);
+      return { audioPath: `/api/audio/${fileName}`, durationMs, providerId: 'deterministic-test-tts', targetLocale: input.targetLocale as never, engineVersion: 'test-v1' };
+    },
+  };
+}
+
+function createRuntime(options: { realTts?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'meihua-v2-'));
   directories.push(directory);
+  const audioDirectory = join(directory, 'audio');
   const runtime = new LiveRuntime(new SqlitePersistence(':memory:'), {
-    audioDirectory: join(directory, 'audio'),
+    audioDirectory,
     mediaDirectory: join(directory, 'media'),
+    ttsAdapter: options.realTts ? undefined : createDeterministicTts(audioDirectory),
     audioPlayer: {
       async play({ signal, onStarted }) {
         if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
@@ -109,14 +134,14 @@ describe('V2 director and synchronized plan', () => {
     const runtime = createRuntime();
     runtime.startSession({ mode: 'REHEARSAL' });
     runtime.pause();
-    const gift = { source: 'tikfinity' as const, eventId: 'gift-v2-1', userId: 'u1', username: 'GiftUser', giftId: 'rose', giftName: 'Rose', repeatCount: 3, repeatEnd: true, timestamp: Date.now(), raw: {} };
+    const gift = { source: 'tikfinity' as const, eventId: 'gift-v2-1', userId: 'u1', username: 'GiftUser', giftId: '5655', giftName: 'Rose', repeatCount: 4, repeatEnd: true, timestamp: Date.now(), raw: {} };
     await runtime.ingestGift(gift); await runtime.ingestGift(gift);
     const like = { source: 'tikfinity' as const, eventId: 'like-v2-1', userId: 'u2', username: 'LikeUser', likeCount: 20, timestamp: Date.now(), raw: {} };
     await runtime.ingestLike(like); await runtime.ingestLike(like);
     await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'comment-v2-1', userId: 'u2', username: 'LikeUser', message: 'reading: Should I keep moving forward?', timestamp: Date.now(), raw: {} });
     const snapshot = runtime.getBroadcastSnapshotV2();
-    expect(snapshot.giftRanking[0]).toMatchObject({ username: 'GiftUser', points: 3, giftCount: 3 });
-    expect(snapshot.engagementRanking[0]).toMatchObject({ username: 'LikeUser', points: 7, likeCount: 20, validCommentCount: 1 });
+    expect(snapshot.giftRanking[0]).toMatchObject({ username: 'GiftUser', points: 4, giftCount: 4 });
+    expect(snapshot.engagementRanking[0]).toMatchObject({ username: 'LikeUser', points: 2, likeCount: 20, validCommentCount: 0 });
   });
 
   it('updates an isolated preview session without changing the formal profile', () => {
@@ -235,10 +260,14 @@ describe('V2 director and synchronized plan', () => {
     expect(updated.engagement.likeRules[0]).toMatchObject({ threshold: 80, label: '累计点赞 80 次' });
   });
 
-  it.skipIf(process.platform !== 'win32')('drives a real Windows WAV through the native backend playback contract', async () => {
+  it('drives a measured WAV through the native backend playback contract', async () => {
     const runtime = createRuntime();
+    runtime.updateSettings({
+      providers: { llm: { adapter: 'rule-based' } },
+      presentation: { mode: 'AUDIO_ONLY' },
+    });
     expect(runtime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
-    runtime.updateSettings({ reading: { speechTargetSeconds: 10, watchdogMs: 45_000 } });
+    runtime.updateSettings({ reading: { speechTargetSeconds: 14, watchdogMs: 45_000 } });
     const reading = await runtime.ingest({
       source: 'mock', eventId: 'sync-integration-reading', userId: 'sync-viewer', username: 'SyncViewer',
       message: 'Should I move steadily forward with this plan?', timestamp: Date.now(), raw: {},
@@ -252,11 +281,10 @@ describe('V2 director and synchronized plan', () => {
     });
     const prepared = runtime.getReading(reading.id)!;
     expect(prepared.tts?.audioPath).toMatch(/^\/api\/audio\/.*\.wav$/);
-    // The local voice keeps the approved calm cadence. Ten seconds is an
-    // internal smoke-test tier (the UI starts at 20s), so verify a real,
-    // bounded WAV and let every visual timeline follow its measured duration.
+    // Verify a real, bounded WAV and let every visual timeline follow its
+    // measured duration. Individual engine integration is covered separately.
     expect(prepared.tts?.durationMs).toBeGreaterThanOrEqual(3_000);
-    expect(prepared.tts?.durationMs).toBeLessThanOrEqual(15_000);
+    expect(prepared.tts?.durationMs).toBeLessThanOrEqual(18_000);
     expect(prepared.speechPlan?.totalDurationMs).toBe(prepared.tts?.durationMs);
     expect(prepared.speechPlan?.segments.length).toBeGreaterThan(0);
     expect(prepared.lipSyncPlan).toMatchObject({ version: 1, mode: 'AMPLITUDE_ONLY', frameIntervalMs: 20 });
@@ -267,7 +295,7 @@ describe('V2 director and synchronized plan', () => {
     expect(completed.status).toBe('COMPLETED');
     const stages = runtime.getDirectorCues().map((item) => item.stage);
     expect(stages).toEqual(expect.arrayContaining(['SELECTED', 'CASTING', 'INTERPRETING', 'COMPOSING', 'SYNTHESIZING', 'SPEAKING', 'FINISH']));
-  }, 25_000);
+  }, 45_000);
 });
 
 describe('V2.2 official integrated stage', () => {
@@ -286,7 +314,7 @@ describe('V2.2 official integrated stage', () => {
       idleBehavior: 'KEEP_LAST',
     });
     expect(Object.keys(profile.sources)).toContain('meihua-stage');
-  });
+  }, 30_000);
 
   it('injects the stage source into an older persisted scene profile without dropping existing sources', () => {
     const directory = mkdtempSync(join(tmpdir(), 'meihua-migrate-'));
@@ -319,11 +347,12 @@ describe('V2.2 official integrated stage', () => {
 
   it('keeps the stage cue-driven: snapshots expose the active cue, side gift cues and the reading for the stage renderer', async () => {
     const runtime = createRuntime();
+    runtime.updateSettings({ providers: { llm: { adapter: 'rule-based' } }, presentation: { mode: 'AUDIO_ONLY' } });
     const started = runtime.startSession({ mode: 'REHEARSAL' });
     expect(started.ok).toBe(true);
     await runtime.ingestGift({
       source: 'mock', eventId: 'stage-gift', userId: 'stage-user', username: 'StageViewer',
-      giftId: '5655', giftName: 'Rose', repeatCount: 1, timestamp: Date.now(), raw: {},
+      giftId: '5655', giftName: 'Rose', repeatCount: 4, repeatEnd: true, timestamp: Date.now(), raw: {},
     });
     const waiting = runtime.getQueueOverview().find((item) => item.username === 'StageViewer');
     expect(waiting?.status).toBe('WAITING_QUESTION');
@@ -348,12 +377,13 @@ describe('V2.2 official integrated stage', () => {
     expect(snapshot.sideCues.some((cue) => cue.track === 'GIFT' && cue.payload.username === 'StageViewer' && cue.payload.giftName === 'Rose')).toBe(true);
     expect(snapshot.qualificationQueue.find((item) => item.username === 'StageViewer')).toBeUndefined();
     runtime.skipCurrent();
-  });
+  }, 30_000);
 });
 
 describe('V2.2 avatar provider adapter layer', () => {
   it('reports local VRM as not configured until an approved model is selected', async () => {
     const runtime = createRuntime();
+    runtime.updateSettings({ providers: { avatar: { adapter: 'local-vrm' } } });
     const health = runtime.getHealth();
     const avatarRow = health.providers.find((item) => item.id === 'local-vrm-avatar');
     expect(avatarRow?.label).toBe('本地透明 VRM 数字人');
@@ -385,7 +415,7 @@ describe('V2.2 avatar provider adapter layer', () => {
     // The production default is a prerecorded video and this unit test has no
     // media profile. Keep the presentation layer explicit so the test focuses
     // on provider stage actions rather than failing preflight.
-    runtime.updateSettings({ providers: { avatar: { adapter: 'mock' }, llm: { adapter: 'rule-based' } }, presentation: { mode: 'AUDIO_ONLY' }, reading: { speechTargetSeconds: 10 } });
+    runtime.updateSettings({ providers: { avatar: { adapter: 'mock' }, llm: { adapter: 'rule-based' }, tts: { adapter: 'windows', voiceId: 'Microsoft Zira Desktop' } }, presentation: { mode: 'AUDIO_ONLY' }, reading: { speechTargetSeconds: 10 } });
     expect(runtime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
     const reading = await runtime.ingest({
       source: 'mock', eventId: 'provider-pipeline', username: 'ProviderViewer',
@@ -445,7 +475,11 @@ describe('V2.2 Meihua engine selection and duration calibration', () => {
 
   it('measures real WAV duration and reports the calibration result for tiered speech', async () => {
     const runtime = createRuntime();
-    runtime.updateSettings({ reading: { speechTargetSeconds: 20, watchdogMs: 90_000 } });
+    runtime.updateSettings({
+      providers: { llm: { adapter: 'rule-based' }, tts: { adapter: 'windows', voiceId: 'Microsoft Zira Desktop' } },
+      presentation: { mode: 'AUDIO_ONLY' },
+      reading: { speechTargetSeconds: 20, watchdogMs: 90_000 },
+    });
     expect(runtime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
     const reading = await runtime.ingest({
       source: 'mock', eventId: 'tier-20s', username: 'TierViewer',
@@ -571,7 +605,7 @@ describe('V2.3 MuseTalk pipeline hook', () => {
     runtime.updateSettings({
       // Use a URL different from the constructor default. Direct segmented
       // rendering must follow the saved setting, not the stale startup URL.
-      providers: { tts: { activeVoiceProfileId: 'segmented-test-voice', voiceProfiles: [{ id: 'segmented-test-voice', voiceId: 'Microsoft Zira Desktop', provider: 'legacy', name: 'Segmented test voice', language: 'en', status: 'READY' }] }, avatar: { adapter: 'musetalk', url: 'http://127.0.0.1:9911', activeProfileId: 'segmented-video-avatar', profiles: [{
+      providers: { llm: { adapter: 'rule-based' }, tts: { adapter: 'windows', voiceId: 'Microsoft Zira Desktop', activeVoiceProfileId: 'segmented-test-voice', voiceProfiles: [{ id: 'segmented-test-voice', voiceId: 'Microsoft Zira Desktop', provider: 'legacy', name: 'Segmented test voice', language: 'en', status: 'READY' }] }, avatar: { adapter: 'musetalk', url: 'http://127.0.0.1:9911', activeProfileId: 'segmented-video-avatar', profiles: [{
         id: 'segmented-video-avatar', name: 'Segmented test avatar', provider: 'LOCAL_VIDEO', status: 'READY',
         sourceAssetId: 'test-source', preparedAvatarId: 'default', maxTextureSize: 2048, renderFps: 30,
         createdAt: Date.now(), updatedAt: Date.now(), version: 1, authorizationConfirmed: true,

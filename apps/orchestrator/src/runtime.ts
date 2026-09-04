@@ -113,8 +113,8 @@ const defaultCommentKeywords = [
 
 export const defaultSettings: AppSettings = {
   queue: {
-    maxVisible: 6,
-    maxTotal: 30,
+    maxVisible: 4,
+    maxTotal: 100,
     sameUserCooldownMinutes: 10,
     expireMinutes: 20,
     dedupeWindowSeconds: 10,
@@ -128,8 +128,7 @@ export const defaultSettings: AppSettings = {
     enabled: true,
     entitlementExpireMinutes: 30,
     rules: [
-      { id: 'rose-priority', enabled: true, giftId: '5655', giftName: 'Rose', minRepeatCount: 1, priority: 'HIGH', speechTargetSeconds: 30, leaderboardPoints: 1, requireStreakEnd: true },
-      { id: 'perfume-vip', enabled: true, giftId: '5658', giftName: 'Perfume', minRepeatCount: 1, priority: 'MANUAL', speechTargetSeconds: 60, leaderboardPoints: 10, requireStreakEnd: true },
+      { id: 'rose-four-reading', enabled: true, giftId: '5655', giftName: 'Rose', minRepeatCount: 4, priority: 'HIGH', speechTargetSeconds: 30, leaderboardPoints: 1, requireStreakEnd: true },
     ],
   },
   engagement: {
@@ -139,7 +138,7 @@ export const defaultSettings: AppSettings = {
     commentPoints: 5,
     obsRankingLimit: 5,
     adminRankingLimit: 20,
-    likeRules: [{ id: 'likes-100', enabled: true, label: '累计点赞 100 次', threshold: 100, priority: 'NORMAL', speechTargetSeconds: 28, grantExpireMinutes: 30, cooldownMinutes: 30 }],
+    likeRules: [{ id: 'likes-100', enabled: true, label: '100 Likes', threshold: 100, priority: 'NORMAL', speechTargetSeconds: 30, grantExpireMinutes: 30, cooldownMinutes: 30 }],
     // Keywords can grant a viewer the right to ask next. A formal reading is
     // still created only after question moderation accepts a clear question.
     commentRules: [{ id: 'comment-reading', enabled: true, label: '请求测算资格（中英文）', keywords: ['测算', '测一卦', '算一卦', '起卦', '占卜', '解卦', '问卦', '梅花易数', '帮我算', '帮我测', '请测', '想测', 'reading', 'fortune', 'divination', 'hexagram', 'meihua', 'read me'], matchMode: 'CONTAINS', stripKeyword: true, priority: 'NORMAL', speechTargetSeconds: 30, queueExpireMinutes: 20, cooldownMinutes: 10 }],
@@ -391,8 +390,8 @@ function normalizeCommentRules(value: unknown): CommentRule[] {
   const looksLikeTestRule = value.length === 1 && storedKeywords.length === 1 && storedKeywords[0] === 'a'
     && (first?.id === 'any-comment' || first?.label === '任意评论');
   // Broad interrogation words and a bare question mark were temporarily used
-  // as automatic queue keywords. They match ordinary chat and must be
-  // replaced during migration with the explicit eligibility vocabulary.
+  // as automatic queue triggers. They match ordinary chat and must be
+  // replaced during migration with recognition-only question vocabulary.
   const hasUnsafeBroadKeyword = storedKeywords.some((keyword) => [
     'a', '?', '？', 'what', 'when', 'where', 'why', 'how', 'should i', 'can i',
     'will i', 'is it', 'question', 'job', 'work', 'money', 'love', 'career',
@@ -1089,7 +1088,7 @@ function queueKey(username: string, question: string): string {
 
 type StatusKey = 'idle' | 'queued' | 'paused' | 'selected' | 'casting' | 'interpreting' | 'composing' | 'synthesizing' | 'speaking' | 'finish' | 'replay' | 'processing';
 const statusCopy: Record<AppSettings['overlay']['contentLanguage'], Record<StatusKey, string>> = {
-  en:{idle:'Ask one clear question in the chat',queued:'Waiting for the next viewer',paused:'Questions are temporarily paused',selected:'Preparing the reading',casting:'Casting the hexagram',interpreting:'Hexagram formed · Interpreting',composing:'Preparing the narration',synthesizing:'Generating the voice',speaking:'Live reading in progress',finish:'Reading complete',replay:'Replaying this reading',processing:'Processing'},
+  en:{idle:'100 likes or 4 Roses unlock a reading. Then ask one clear question.',queued:'Waiting for the next viewer',paused:'Questions are temporarily paused',selected:'Preparing the reading',casting:'Casting the hexagram',interpreting:'Hexagram formed · Interpreting',composing:'Preparing the narration',synthesizing:'Generating the voice',speaking:'Live reading in progress',finish:'Reading complete',replay:'Replaying this reading',processing:'Processing'},
   'zh-CN':{idle:'把一个清晰的问题发在评论区',queued:'正在等待下一位观众',paused:'暂时停止收题',selected:'正在准备解读',casting:'正在起卦',interpreting:'卦象已成 · 正在推演',composing:'正在整理口播',synthesizing:'正在准备语音',speaking:'正在解读',finish:'本轮完成',replay:'正在回放本轮解读',processing:'处理中'},
   es:{idle:'Escribe una pregunta clara en el chat',queued:'Esperando al siguiente espectador',paused:'Las preguntas están en pausa',selected:'Preparando la lectura',casting:'Formando el hexagrama',interpreting:'Hexagrama formado · Interpretando',composing:'Preparando la narración',synthesizing:'Generando la voz',speaking:'Lectura en directo',finish:'Lectura terminada',replay:'Repitiendo esta lectura',processing:'Procesando'},
   fr:{idle:'Posez une question claire dans le chat',queued:'En attente du prochain spectateur',paused:'Les questions sont en pause',selected:'Préparation du tirage',casting:'Création de l’hexagramme',interpreting:'Hexagramme formé · Interprétation',composing:'Préparation de la narration',synthesizing:'Génération de la voix',speaking:'Lecture en direct',finish:'Lecture terminée',replay:'Relecture en cours',processing:'Traitement'},
@@ -1111,6 +1110,7 @@ export class LiveRuntime {
   private readonly liveInput = new LocalLiveInputAdapter();
   private readonly tikfinity: TikfinityLiveInputAdapter;
   private readonly windowsTts: WindowsTtsAdapter;
+  private readonly ttsAdapterOverride?: TtsAdapter;
   private readonly audioPlayer: NativeAudioPlayer;
   private readonly mockAvatarProvider: AvatarProviderAdapter = new LocalMockAvatarProviderAdapter();
   private readonly localVrmAvatarProvider = new LocalVrmAvatarAdapter();
@@ -1152,6 +1152,8 @@ export class LiveRuntime {
   private readonly sideCues = new Map<string, DirectorCue>();
   private readonly sideCueTimers = new Map<string, NodeJS.Timeout>();
   private readonly pipelineRetryTimers = new Map<string, NodeJS.Timeout>();
+  /** Queue entries being prepared while the current reading is speaking. */
+  private readonly preprocessingReadings = new Set<string>();
   private directorSequence = 0;
   private publishedProfileVersion: SceneProfileVersion;
   private draftProfileVersion: SceneProfileVersion;
@@ -1187,7 +1189,7 @@ export class LiveRuntime {
   private liveInboxSnapshotTimer?: NodeJS.Timeout;
   private closing = false;
 
-  constructor(private readonly persistence: SqlitePersistence, options: { audioDirectory?: string; voicesDirectory?: string; mediaDirectory?: string; systemAssetDirectory?: string; initialSettings?: AppSettingsPatch; audioPlayer?: NativeAudioPlayer; museTalkFetcher?: typeof fetch } = {}) {
+  constructor(private readonly persistence: SqlitePersistence, options: { audioDirectory?: string; voicesDirectory?: string; mediaDirectory?: string; systemAssetDirectory?: string; initialSettings?: AppSettingsPatch; audioPlayer?: NativeAudioPlayer; museTalkFetcher?: typeof fetch; ttsAdapter?: TtsAdapter } = {}) {
     this.audioDirectory = options.audioDirectory ?? join(process.cwd(), 'data', 'audio');
     this.voicesDirectory = options.voicesDirectory ?? join(this.audioDirectory, '..', 'voices');
     this.mediaDirectory = options.mediaDirectory ?? join(process.cwd(), 'data', 'media');
@@ -1204,11 +1206,13 @@ export class LiveRuntime {
     if (options.systemAssetDirectory) this.seedSystemAssets(options.systemAssetDirectory);
     this.reconcileMediaAssets();
     this.windowsTts = new WindowsTtsAdapter(this.audioDirectory);
+    this.ttsAdapterOverride = options.ttsAdapter;
     this.audioPlayer = options.audioPlayer ?? new WindowsNativeAudioPlayer();
     this.museTalkAvatarProvider = new MuseTalkAvatarAdapter({ baseUrl: defaultSettings.providers.avatar.url, fetcher: options.museTalkFetcher });
     this.initialSettings = normalizeSettings(options.initialSettings ?? defaultSettings);
     this.settings = normalizeSettings(this.persistence.getSetting('settings', this.initialSettings));
     this.applyProductionDefaultsOnce();
+    this.applyQueuePolicyV2Once();
     this.seedDevelopmentDigitalHumanProfiles();
     this.seedDefaultPresentationProfile();
     this.digitalHumanPresets = this.persistence.getSetting<DigitalHumanPreset[]>('digital-human-presets', []);
@@ -1302,6 +1306,45 @@ export class LiveRuntime {
       else this.draftProfileVersion = migrated;
       this.persistence.saveSceneProfileVersion(migrated);
     }
+    // Production scene V2: restore the caption layer and rename the ambiguous
+    // avatar layer to its real role. It hosts either the one-shot presentation
+    // video or an explicitly enabled digital human.
+    if (!this.persistence.getSetting<boolean>('production-scene-v2', false)) {
+      for (const version of [this.publishedProfileVersion, this.draftProfileVersion]) {
+        const profile = structuredClone(version.profile);
+        profile.sources.subtitles = { ...profile.sources.subtitles, enabled: true, idleBehavior: 'HIDE', showTitle: false };
+        if (profile.composition) {
+          profile.composition.layers = profile.composition.layers.map((layer) => layer.kind === 'MODULE' && layer.moduleId === 'subtitles'
+            ? { ...layer, visible: true, name: '动态口播字幕' }
+            : layer.kind === 'MODULE' && layer.moduleId === 'avatar'
+              ? { ...layer, name: '播报画面（视频 / 数字人）' }
+              : layer);
+        }
+        const migrated = { ...version, profile };
+        if (version.status === 'PUBLISHED') this.publishedProfileVersion = migrated;
+        else this.draftProfileVersion = migrated;
+        this.persistence.saveSceneProfileVersion(migrated);
+      }
+      this.persistence.setSetting('production-scene-v2', true);
+    }
+    // Production scene V3: expose only the viewer, question, and hexagram name
+    // as context. The generated reading remains private to the admin monitor.
+    if (!this.persistence.getSetting<boolean>('production-scene-v3', false)) {
+      for (const version of [this.publishedProfileVersion, this.draftProfileVersion]) {
+        const profile = structuredClone(version.profile);
+        profile.sources['current-viewer'] = { ...profile.sources['current-viewer'], enabled: true };
+        if (profile.composition) {
+          profile.composition.layers = profile.composition.layers.map((layer) => layer.kind === 'MODULE' && layer.moduleId === 'current-viewer'
+            ? { ...layer, visible: true, name: '当前用户 · 问题 · 卦名' }
+            : layer);
+        }
+        const migrated = { ...version, profile };
+        if (version.status === 'PUBLISHED') this.publishedProfileVersion = migrated;
+        else this.draftProfileVersion = migrated;
+        this.persistence.saveSceneProfileVersion(migrated);
+      }
+      this.persistence.setSetting('production-scene-v3', true);
+    }
     const openSession = this.persistence.getOpenLiveSession();
     if (openSession) {
       this.currentSession = { ...openSession, status: 'RECOVERING', lastHeartbeatAt: Date.now(), endReason: 'PROCESS_RESTART_RECOVERY' };
@@ -1339,9 +1382,11 @@ export class LiveRuntime {
       onGift: async (event) => { await this.ingestGift(event); },
       onLike: async (event) => { await this.ingestLike(event); },
     });
-    // Keep the room adapter disconnected while the console is idle.  TikFinity
-    // can emit a steady stream of room/like events even without a live session;
-    // it is started explicitly by startSession/resumeSession instead.
+    // Keep the diagnostics socket connected before the operator presses Start.
+    // enqueueTikfinityEvent still refuses to persist or account for events
+    // outside a LIVE session, so connectivity can be proven without polluting
+    // the production queue.
+    if (this.settings.providers.liveInput.adapter === 'tikfinity') this.startTikfinityInput();
     void this.processLiveInbox();
     this.persistence.recoverDigitalHumanJobs();
     queueMicrotask(() => this.resumeDigitalHumanJobs());
@@ -1420,6 +1465,41 @@ export class LiveRuntime {
       language: this.settings.overlay.contentLanguage,
       tts: this.settings.providers.tts.voiceId,
       presentation: this.settings.presentation.mode,
+    });
+  }
+
+  /** One-time production policy migration requested for the live qualification flow. */
+  private applyQueuePolicyV2Once(): void {
+    if (this.persistence.getSetting<boolean>('production-policy-v2', false)) return;
+    this.settings = normalizeSettings({
+      ...this.settings,
+      queue: { ...this.settings.queue, maxVisible: 4, maxTotal: 100 },
+      reading: { ...this.settings.reading, speechTargetSeconds: 30 },
+      gifts: {
+        ...this.settings.gifts,
+        enabled: true,
+        rules: [{
+          id: 'rose-four-reading', enabled: true, giftId: '5655', giftName: 'Rose',
+          minRepeatCount: 4, priority: 'HIGH', speechTargetSeconds: 30,
+          leaderboardPoints: 1, requireStreakEnd: true,
+        }],
+      },
+      engagement: {
+        ...this.settings.engagement,
+        enabled: true,
+        likeRules: [{
+          id: 'likes-100', enabled: true, label: '100 Likes', threshold: 100,
+          priority: 'NORMAL', speechTargetSeconds: 30,
+          grantExpireMinutes: 30, cooldownMinutes: 30,
+        }],
+      },
+    });
+    this.persistence.setSetting('settings', this.settings);
+    this.persistence.setSetting('production-policy-v2', true);
+    this.persistence.recordEvent('QUEUE_POLICY_V2_APPLIED', {
+      maxVisible: 4, maxTotal: 100, likeThreshold: 100,
+      giftId: '5655', giftName: 'Rose', giftRepeatCount: 4,
+      speechTargetSeconds: 30,
     });
   }
 
@@ -1594,6 +1674,7 @@ export class LiveRuntime {
   }
 
   private getTtsAdapter(): TtsAdapter {
+    if (this.ttsAdapterOverride) return this.ttsAdapterOverride;
     const activeVoice = this.getActiveVoiceProfile();
     const selectedTtsAdapter = this.settings.providers.tts.adapter;
     // The top-level mode is authoritative. A previously activated cloud voice
@@ -1802,7 +1883,7 @@ export class LiveRuntime {
     this.settings = next;
     this.persistence.setSetting('settings', this.settings);
     this.tikfinity.configure(this.settings.providers.liveInput.url);
-    if (this.currentSession?.status === 'LIVE' && this.settings.providers.liveInput.adapter === 'tikfinity') this.startTikfinityInput();
+    if (this.settings.providers.liveInput.adapter === 'tikfinity') this.startTikfinityInput();
     else void this.tikfinity.stop();
     this.vtube.configure(this.settings.providers.avatar.url, readDpapiSecret(this.vtubeTokenPath));
     this.persistence.recordEvent('SETTINGS_UPDATED', { settings: this.settings });
@@ -1814,7 +1895,7 @@ export class LiveRuntime {
     this.settings = structuredClone(this.initialSettings);
     this.persistence.setSetting('settings', this.settings);
     this.tikfinity.configure(this.settings.providers.liveInput.url);
-    if (this.currentSession?.status === 'LIVE' && this.settings.providers.liveInput.adapter === 'tikfinity') this.startTikfinityInput();
+    if (this.settings.providers.liveInput.adapter === 'tikfinity') this.startTikfinityInput();
     else void this.tikfinity.stop();
     this.vtube.configure(this.settings.providers.avatar.url, readDpapiSecret(this.vtubeTokenPath));
     this.persistence.recordEvent('SETTINGS_RESET_TO_CONFIG', { settings: this.settings });
@@ -2011,7 +2092,7 @@ export class LiveRuntime {
     this.currentSession = { ...this.currentSession, status: 'PAUSED', lastHeartbeatAt: Date.now() };
     this.persistence.saveLiveSession(this.currentSession);
     this.acceptingQuestions = false;
-    void this.tikfinity.stop();
+    // Keep the diagnostics socket connected; liveIntakeOpen() blocks intake.
     this.startDirectorCue('PAUSED', undefined, { reason: 'OPERATOR_PAUSE' }, 'SYSTEM');
     this.persistence.recordEvent('LIVE_SESSION_PAUSED', { sessionId: this.currentSession.sessionId });
     this.broadcastV2('SESSION_CHANGED', this.currentSession);
@@ -2039,7 +2120,7 @@ export class LiveRuntime {
     this.currentSession = { ...this.currentSession, status: 'ENDING', lastHeartbeatAt: Date.now(), operatorNote: input.operatorNote?.trim() || this.currentSession.operatorNote };
     this.persistence.saveLiveSession(this.currentSession);
     this.acceptingQuestions = false;
-    void this.tikfinity.stop();
+    // Keep the diagnostics socket connected between live sessions.
     this.persistence.recordEvent('LIVE_SESSION_END_REQUESTED', { sessionId: this.currentSession.sessionId });
     if (!this.active) this.finalizeSession('NORMAL_END');
     else this.broadcastV2('SESSION_CHANGED', this.currentSession);
@@ -4616,25 +4697,22 @@ export class LiveRuntime {
       return undefined;
     }
 
-    // A clear question is sufficient on its own.  Keyword rules are only an
-    // entitlement convenience for viewers who first type "reading" and ask
-    // their question in a later comment; they must not gate real questions.
+    // Comments never create entitlement. A viewer first earns a pending grant
+    // through likes or a gift, then claims it with one clear question.
     const directQuestion = commentMatch?.question ?? event.message;
     const directModeration = moderateQuestion(directQuestion, this.settings.moderation);
     if (directModeration.decision === 'ALLOW') {
-      const existed = this.persistence.getReadingBySourceEventId(event.source, event.eventId);
-      const reading = await this.ingest({ ...event, message: directQuestion }, commentRule?.priority ?? 'NORMAL', {
-        qualification: { kind: 'COMMENT_KEYWORD', ruleId: commentRule?.id ?? 'clear-question', label: commentRule?.label ?? '明确提问' },
-        queueExpireMinutes: this.settings.queue.expireMinutes,
-        speechTargetSeconds: commentRule?.speechTargetSeconds ?? this.settings.reading.speechTargetSeconds,
+      this.persistence.recordEvent('QUESTION_REJECTED_NO_QUALIFICATION', {
+        eventId: event.eventId, username: event.username,
+        reason: 'Reach 100 likes or send the configured gift first, then ask one clear question.',
       });
-      if (!existed && reading.status === 'QUEUED') this.addEngagementStats(event, 0, 1);
-      return reading;
+      return undefined;
     }
 
     if (commentRule) {
-      this.persistence.recordEvent('COMMENT_KEYWORD_WAITING_FOR_QUESTION', { eventId: event.eventId, username: event.username, reason: directModeration.reason });
-      this.createCommentQualification(event, commentRule, key);
+      this.persistence.recordEvent('COMMENT_KEYWORD_REJECTED_NO_QUALIFICATION', {
+        eventId: event.eventId, username: event.username, reason: directModeration.reason,
+      });
       return undefined;
     }
     this.persistence.recordEvent('CHAT_IGNORED_NO_ELIGIBILITY', { eventId: event.eventId, username: event.username, messageLength: event.message.length });
@@ -4676,6 +4754,12 @@ export class LiveRuntime {
       };
       this.persistence.saveQualificationGrant(grant);
       this.persistence.recordEvent('LIKE_GRANT_CREATED', { grantId: grant.id, ruleId: rule.id, username: event.username, total, expiresAt: grant.expiresAt });
+      this.startDirectorCue('QUALIFIED', undefined, {
+        username: event.username,
+        qualification: 'LIKE',
+        message: `@${event.username}, 100 likes reached. Ask one clear question now.`,
+      }, 'SYSTEM', 8_000);
+      this.publishSnapshot('QUEUE_CHANGED');
       return { granted: true, total, ruleId: rule.id };
     }
     return { granted: false, total };
@@ -5277,9 +5361,99 @@ export class LiveRuntime {
     socket.on('error', detach);
   }
 
+  /**
+   * Prepare the next queued reading while the current WAV is playing. The
+   * reading remains QUEUED, so ordering and operator controls do not change;
+   * only immutable artifacts are attached. A restart can safely reuse them.
+   */
+  private scheduleNextReadingPreprocess(): void {
+    if (this.closing || !this.active) return;
+    const next = this.queue.list()[0];
+    if (!next || this.preprocessingReadings.has(next.readingId)) return;
+    const reading = this.getReading(next.readingId);
+    if (!reading || reading.status !== 'QUEUED' || (reading.meihua && reading.answer && reading.tts?.audioPath && reading.speechPlan)) return;
+    this.preprocessingReadings.add(next.readingId);
+    void this.preprocessQueuedReading(next.readingId).catch((error: unknown) => {
+      this.persistence.recordEvent('NEXT_READING_PREPROCESS_FAILED', {
+        message: error instanceof Error ? error.message : 'Unknown preprocessing error',
+      }, next.readingId);
+    }).finally(() => {
+      this.preprocessingReadings.delete(next.readingId);
+      if (!this.closing) this.publishSnapshot('STATE_CHANGED');
+    });
+  }
+
+  private async preprocessQueuedReading(readingId: string): Promise<void> {
+    let reading = this.requireReading(readingId);
+    if (reading.status !== 'QUEUED') return;
+    const presentationSnapshot = reading.presentationSnapshot ?? this.resolvePresentationSnapshot();
+    const voiceSnapshot = reading.voiceSnapshot ?? this.resolveVoiceSelectionSnapshot();
+    if (!reading.presentationSnapshot || !reading.voiceSnapshot) {
+      this.replace(readingId, { presentationSnapshot, voiceSnapshot }, 'NEXT_OUTPUT_SELECTION_PRELOCKED');
+    }
+    reading = this.requireReading(readingId);
+    const meihua = reading.meihua ?? await this.withRetry('NEXT_MEIHUA_ENGINE', readingId, () => this.meihuaEngine.cast({
+      readingId,
+      question: reading.normalizedQuestion ?? reading.rawQuestion,
+      username: reading.username,
+      receivedAt: new Date(reading.createdAt).toISOString(),
+      locale: 'zh-CN',
+      seedPolicy: 'NUMBER',
+      userProvidedNumbers: questionSums(reading.username, reading.normalizedQuestion ?? reading.rawQuestion, reading.sourceEventId ?? readingId),
+    }));
+    if (this.requireReading(readingId).status !== 'QUEUED') return;
+    const targetSeconds = reading.speechTargetSeconds ?? this.settings.reading.speechTargetSeconds;
+    let answer = reading.answer ?? await this.withRetry('NEXT_ANSWER_COMPOSER', readingId, () => this.getAnswerComposer().compose({
+      username: reading.username,
+      question: reading.normalizedQuestion ?? reading.rawQuestion,
+      result: meihua,
+      targetSeconds,
+      language: voiceSnapshot.contentLanguage,
+      speechRate: voiceSnapshot.speed,
+      category: reading.category,
+    }));
+    assertValidAnswerContent(answer);
+    assertAnswerLengthTarget(answer, voiceSnapshot.contentLanguage, targetSeconds, voiceSnapshot.speed);
+    answer = withAnswerLengthMetrics(answer, voiceSnapshot.contentLanguage, targetSeconds, voiceSnapshot.speed);
+    if (this.requireReading(readingId).status !== 'QUEUED') return;
+    const tts = reading.tts?.audioPath && existsSync(join(this.audioDirectory, basename(reading.tts.audioPath)))
+      ? reading.tts
+      : await this.synthesizeWithFallback(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, voiceSnapshot);
+    if (!tts.audioPath || tts.durationMs < 900) throw new Error('NEXT_TTS_AUDIO_INVALID');
+    if (this.requireReading(readingId).status !== 'QUEUED') return;
+    const audioFilePath = join(this.audioDirectory, basename(tts.audioPath));
+    const lipSyncPlan = buildLipSyncPlan({ wav: readFileSync(audioFilePath) });
+    const baseSpeechPlan = buildSpeechPlan(readingId, answer, tts.durationMs);
+    const speechPlan = {
+      ...baseSpeechPlan,
+      voiceProfileId: voiceSnapshot.voiceProfileId ?? voiceSnapshot.voiceId,
+      contentLanguage: voiceSnapshot.contentLanguage,
+      audioAssetId: basename(tts.audioPath),
+      lipSyncPlan,
+      avatarActionTimeline: baseSpeechPlan.segments.map((segment) => ({ action: segment.avatarAction, offsetMs: segment.offsetMs, durationMs: segment.durationMs })),
+    };
+    this.replace(readingId, {
+      meihua, answer,
+      tts: { ...tts, lipSyncPlan, analysisVersion: 'wav-amplitude-v1' },
+      speechPlan, lipSyncPlan,
+      pipeline: this.createPipelineSnapshot(readingId, 'QUEUED', reading.pipeline?.attempt ?? 0,
+        { hexagram: true, script: true, audio: true, lipSync: true, avatar: false }),
+    }, 'NEXT_READING_PREPROCESSED');
+    this.persistence.recordEvent('NEXT_READING_PREPROCESS_READY', {
+      voiceId: voiceSnapshot.voiceId,
+      language: voiceSnapshot.contentLanguage,
+      audioDurationMs: tts.durationMs,
+    }, readingId);
+  }
+
   private async pump(): Promise<void> {
     if (!this.autoProcessing || this.active || this.replay) return;
     this.expireQueued();
+    const candidate = this.queue.list()[0];
+    if (candidate && this.preprocessingReadings.has(candidate.readingId)) {
+      setTimeout(() => { if (!this.closing) void this.pump(); }, 500);
+      return;
+    }
     const next = this.queue.next();
     if (!next) {
       this.publishSnapshot('QUEUE_CHANGED');
@@ -5351,7 +5525,7 @@ export class LiveRuntime {
       const interpreting = this.requireReading(readingId);
       const lockedVoice = interpreting.voiceSnapshot ?? this.resolveVoiceSelectionSnapshot();
       if (!interpreting.voiceSnapshot) this.replace(readingId, { voiceSnapshot: lockedVoice }, 'VOICE_SNAPSHOT_BACKFILLED');
-      const meihua = await this.withRetry('MEIHUA_ENGINE', readingId, () => this.meihuaEngine.cast({
+      const meihua = interpreting.meihua ?? await this.withRetry('MEIHUA_ENGINE', readingId, () => this.meihuaEngine.cast({
         readingId,
         question: interpreting.normalizedQuestion ?? interpreting.rawQuestion,
         // Live readings use the standard three-number remainder method. The
@@ -5385,7 +5559,7 @@ export class LiveRuntime {
         targetSeconds,
         language: contentLanguage,
       }, readingId);
-      let answer = await this.withRetry('ANSWER_COMPOSER', readingId, () => this.getAnswerComposer().compose({
+      let answer = composing.answer ?? await this.withRetry('ANSWER_COMPOSER', readingId, () => this.getAnswerComposer().compose({
         username: composing.username,
         question: composing.normalizedQuestion ?? composing.rawQuestion,
         result: meihua,
@@ -5424,40 +5598,45 @@ export class LiveRuntime {
         return;
       }
       const ttsStartedAt = Date.now();
-      this.persistence.recordEvent('TTS_SYNTHESIS_STARTED', {
-        voiceId: lockedVoice.voiceId,
-        voiceProfileId: lockedVoice.voiceProfileId,
-        targetSeconds,
-      }, readingId);
-      // Local CPU synthesis can be quiet for a long time. Keep the durable
-      // pipeline moving so the console never looks frozen at 66%.
-      let ttsProgressActive = true;
-      const ttsProgressTimer = setInterval(() => {
-        if (!ttsProgressActive) return;
-        try {
-          const current = this.getReading(readingId);
-          if (current?.pipeline?.phase !== 'SYNTHESIZING') return;
-          const progress = Math.min(78, 67 + Math.floor((Date.now() - ttsStartedAt) / 2_500));
-          this.replace(readingId, {
-            pipeline: { ...current.pipeline, progress, updatedAt: Date.now() },
-          }, 'TTS_SYNTHESIS_PROGRESS');
-        } catch {
-          // A cancelled test/runtime may close SQLite while a slow local
-          // synthesizer is still unwinding. Never let a progress heartbeat
-          // become an unhandled exception after shutdown.
-          ttsProgressActive = false;
-          clearInterval(ttsProgressTimer);
-        }
-      }, 2_500);
-      const tts = await this.synthesizeWithFallback(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, lockedVoice)
-        .catch((error) => {
-          this.persistence.recordEvent('TTS_SYNTHESIS_FAILED', { message: error instanceof Error ? error.message : 'unknown', elapsedMs: Date.now() - ttsStartedAt }, readingId);
-          throw error;
-        })
-        .finally(() => {
-          ttsProgressActive = false;
-          clearInterval(ttsProgressTimer);
-        });
+      const existingTts = this.requireReading(readingId).tts;
+      let tts = existingTts?.audioPath && existsSync(join(this.audioDirectory, basename(existingTts.audioPath)))
+        ? existingTts
+        : undefined;
+      if (tts) {
+        this.persistence.recordEvent('PREPROCESSED_TTS_REUSED', { voiceId: lockedVoice.voiceId, durationMs: tts.durationMs }, readingId);
+      } else {
+        this.persistence.recordEvent('TTS_SYNTHESIS_STARTED', {
+          voiceId: lockedVoice.voiceId,
+          voiceProfileId: lockedVoice.voiceProfileId,
+          targetSeconds,
+        }, readingId);
+        // Local CPU synthesis can be quiet for a long time. Keep the durable
+        // pipeline moving so the console never looks frozen at 66%.
+        let ttsProgressActive = true;
+        const ttsProgressTimer = setInterval(() => {
+          if (!ttsProgressActive) return;
+          try {
+            const current = this.getReading(readingId);
+            if (current?.pipeline?.phase !== 'SYNTHESIZING') return;
+            const progress = Math.min(78, 67 + Math.floor((Date.now() - ttsStartedAt) / 2_500));
+            this.replace(readingId, {
+              pipeline: { ...current.pipeline, progress, updatedAt: Date.now() },
+            }, 'TTS_SYNTHESIS_PROGRESS');
+          } catch {
+            ttsProgressActive = false;
+            clearInterval(ttsProgressTimer);
+          }
+        }, 2_500);
+        tts = await this.synthesizeWithFallback(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, lockedVoice)
+          .catch((error) => {
+            this.persistence.recordEvent('TTS_SYNTHESIS_FAILED', { message: error instanceof Error ? error.message : 'unknown', elapsedMs: Date.now() - ttsStartedAt }, readingId);
+            throw error;
+          })
+          .finally(() => {
+            ttsProgressActive = false;
+            clearInterval(ttsProgressTimer);
+          });
+      }
       this.persistence.recordEvent('TTS_SYNTHESIS_FINISHED', { provider: tts.providerId, durationMs: tts.durationMs, elapsedMs: Date.now() - ttsStartedAt }, readingId);
       if (controller.signal.aborted) throw new PipelineAbortedError();
       if (!tts.audioPath || tts.durationMs < 900) throw new Error('TTS did not produce a playable WAV with a valid duration.');
@@ -5580,6 +5759,9 @@ export class LiveRuntime {
       });
       if (!speakingCue) throw new Error('Unable to start the speaking master clock.');
       await this.performAvatar('SPEAKING_NEUTRAL', readingId);
+      // The current WAV is ready and playback is about to begin. Use that
+      // speaking window to prepare the next queue entry off the critical path.
+      this.scheduleNextReadingPreprocess();
       try {
         const result = await this.audioPlayer.play({
           filePath: join(this.audioDirectory, basename(tts.audioPath)),
@@ -5610,7 +5792,9 @@ export class LiveRuntime {
       this.checkpoint(readingId, 'FINISH', { artifacts: { hexagram: true, script: true, audio: true, lipSync: true, avatar: true } });
       this.startDirectorCue('FINISH', readingId, { avatarAction: 'FINISH' });
       await this.performAvatar('FINISH', readingId);
-      await delay(900, controller.signal);
+      // A quiet internal handoff prevents two viewers from sounding joined
+      // together. No visible countdown is emitted.
+      await delay(this.queue.size > 0 ? 3_000 : 900, controller.signal);
     } catch (error) {
       const current = this.getReading(readingId);
       if (!this.closing && current && !isTerminal(current.status)) {
@@ -5671,7 +5855,10 @@ export class LiveRuntime {
     };
     const first = await this.withRetry('TTS_PRIMARY', readingId, () => this.runGpuTask('VOICE_SYNTHESIS', () => adapter.synthesize(input)));
     const targetMs = Math.max(3_000, targetSeconds * 1_000);
-    const toleranceMs = Math.max(1_200, targetMs * 0.08);
+    // Production acceptance allows a natural-speech window of ±15%.
+    // Tighter limits make local engines chase tiny cadence differences and
+    // can reject otherwise valid narration after all correction attempts.
+    const toleranceMs = Math.max(1_200, targetMs * 0.15);
     let best = first;
     let requestedSpeed = input.speed;
     const firstErrorMs = first.durationMs - targetMs;
@@ -6032,7 +6219,7 @@ export class LiveRuntime {
     this.persistence.saveLiveSession(this.currentSession);
     this.autoProcessing = false;
     this.acceptingQuestions = false;
-    void this.tikfinity.stop();
+    // Keep the diagnostics socket connected between live sessions.
     for (const timer of this.pipelineRetryTimers.values()) clearTimeout(timer);
     this.pipelineRetryTimers.clear();
     this.persistence.recordEvent('LIVE_SESSION_ENDED', { sessionId: this.currentSession.sessionId, reason });

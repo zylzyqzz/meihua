@@ -47,7 +47,7 @@ describe('LiveRuntime intake controls', () => {
     const runtime = createRuntime();
     const gift = await runtime.ingestGift({
       source: 'mock', eventId: 'gift-before-question', userId: 'viewer-1', username: 'GiftViewer',
-      giftId: 'rose', giftName: 'Rose', repeatCount: 1, timestamp: Date.now(), raw: {},
+      giftId: '5655', giftName: 'Rose', repeatCount: 4, timestamp: Date.now(), raw: {},
     });
     const waiting = runtime.getQueueOverview();
     const reading = await runtime.ingest({
@@ -58,9 +58,20 @@ describe('LiveRuntime intake controls', () => {
     expect(gift.action).toBe('PENDING_QUESTION');
     expect(waiting).toEqual([expect.objectContaining({ username: 'GiftViewer', status: 'WAITING_QUESTION', giftName: 'Rose' })]);
     expect(reading).toMatchObject({ status: 'QUEUED', priority: 'HIGH', speechTargetSeconds: 30, expiresAt: undefined });
-    expect(reading.gift).toMatchObject({ giftName: 'Rose', ruleId: 'rose-priority' });
+    expect(reading.gift).toMatchObject({ giftName: 'Rose', ruleId: 'rose-four-reading' });
     expect(runtime.getGiftEntitlements()[0]).toMatchObject({ status: 'APPLIED', readingId: reading.id });
     expect(runtime.getQueueOverview()).toEqual([expect.objectContaining({ username: 'GiftViewer', status: 'QUEUED', question: 'Should I move forward with this plan?', position: 1 })]);
+  });
+
+  it('requires the full four-Rose streak before granting a reading', async () => {
+    const runtime = createRuntime();
+    const partial = await runtime.ingestGift({
+      source: 'mock', eventId: 'three-roses', userId: 'viewer-partial', username: 'PartialViewer',
+      giftId: '5655', giftName: 'Rose', repeatCount: 3, repeatEnd: true, timestamp: Date.now(), raw: {},
+    });
+    expect(partial.action).toBe('IGNORED');
+    expect(runtime.getGiftEntitlements()).toHaveLength(0);
+    expect(runtime.getQueueOverview()).toHaveLength(0);
   });
 
   it('keeps a gifted viewer pending through chatter and binds the next clear question', async () => {
@@ -69,7 +80,7 @@ describe('LiveRuntime intake controls', () => {
     runtime.pause();
     const gift = await runtime.ingestGift({
       source: 'tikfinity', eventId: 'real-gift-first', userId: 'viewer-gift', username: 'GiftViewer',
-      giftId: '5655', giftName: 'Rose', repeatCount: 1, timestamp: Date.now(), raw: {},
+      giftId: '5655', giftName: 'Rose', repeatCount: 4, timestamp: Date.now(), raw: {},
     });
     const chatter = await runtime.ingestTikfinityChat({
       source: 'tikfinity', eventId: 'gift-chatter', userId: 'viewer-gift', username: 'GiftViewer',
@@ -94,12 +105,12 @@ describe('LiveRuntime intake controls', () => {
     });
     const result = await runtime.ingestGift({
       source: 'mock', eventId: 'gift-after-question', username: 'VIPViewer',
-      giftId: 'perfume', giftName: 'Perfume', repeatCount: 1, timestamp: Date.now() + 1, raw: {},
+      giftId: '5655', giftName: 'Rose', repeatCount: 4, timestamp: Date.now() + 1, raw: {},
     });
 
     expect(result).toMatchObject({ action: 'APPLIED_TO_QUEUE', readingId: reading.id });
-    expect(runtime.getReading(reading.id)).toMatchObject({ priority: 'MANUAL', speechTargetSeconds: 60, expiresAt: undefined });
-    expect(runtime.getQueue()[0]).toMatchObject({ readingId: reading.id, priority: 'MANUAL', giftName: 'Perfume', speechTargetSeconds: 60, expiresAt: undefined });
+    expect(runtime.getReading(reading.id)).toMatchObject({ priority: 'HIGH', speechTargetSeconds: 30, expiresAt: undefined });
+    expect(runtime.getQueue()[0]).toMatchObject({ readingId: reading.id, priority: 'HIGH', giftName: 'Rose', speechTargetSeconds: 30, expiresAt: undefined });
   });
 
   it('treats source events as idempotent', async () => {
@@ -110,7 +121,7 @@ describe('LiveRuntime intake controls', () => {
     expect(duplicate.id).toBe(first.id);
     expect(runtime.getQueue()).toHaveLength(1);
 
-    const giftEvent = { source: 'mock' as const, eventId: 'same-gift-event', username: 'GiftViewer', giftId: 'rose', giftName: 'Rose', repeatCount: 1, timestamp: Date.now(), raw: {} };
+    const giftEvent = { source: 'mock' as const, eventId: 'same-gift-event', username: 'GiftViewer', giftId: '5655', giftName: 'Rose', repeatCount: 4, timestamp: Date.now(), raw: {} };
     const gift = await runtime.ingestGift(giftEvent);
     const duplicateGift = await runtime.ingestGift(giftEvent);
     expect(duplicateGift.entitlement?.id).toBe(gift.entitlement?.id);
@@ -142,26 +153,26 @@ describe('LiveRuntime intake controls', () => {
     expect(reading).toMatchObject({ status: 'QUEUED', qualification: { kind: 'LIKE', ruleId: 'likes-100' } });
   });
 
-  it('queues a matching comment rule and ignores unrelated TikFinity chat', async () => {
+  it('requires a like or gift entitlement before a clear comment can enter the queue', async () => {
     const runtime = createRuntime();
     runtime.startSession({ mode: 'REHEARSAL' });
     runtime.pause();
     const ignored = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'chat-ignore', username: 'ViewerA', message: 'hello everyone', timestamp: Date.now(), raw: {} });
     const accepted = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'chat-match', username: 'ViewerB', message: 'reading: Is a job change suitable?', timestamp: Date.now() + 1, raw: {} });
     expect(ignored).toBeUndefined();
-    expect(accepted).toMatchObject({ status: 'QUEUED', qualification: { kind: 'COMMENT_KEYWORD' } });
-    expect(accepted?.rawQuestion).toBe('Is a job change suitable?');
+    expect(accepted).toBeUndefined();
+    expect(runtime.getQueue()).toHaveLength(0);
   });
 
-  it('keeps a keyword-only comment as a pending qualification and binds the next valid question', async () => {
+  it('does not create qualification from a keyword-only comment', async () => {
     const runtime = createRuntime();
     runtime.startSession({ mode: 'REHEARSAL' });
     runtime.pause();
     const keyword = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'keyword-only', userId: 'keyword-user', username: 'KeywordViewer', message: 'reading', timestamp: Date.now(), raw: {} });
     expect(keyword).toBeUndefined();
-    expect(runtime.getPendingQualifications()).toEqual([expect.objectContaining({ username: 'KeywordViewer', kind: 'COMMENT_KEYWORD' })]);
+    expect(runtime.getPendingQualifications()).toHaveLength(0);
     const reading = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: 'question-after-keyword', userId: 'keyword-user', username: 'KeywordViewer', message: 'Can I change jobs this year', timestamp: Date.now() + 1, raw: {} });
-    expect(reading).toMatchObject({ status: 'QUEUED', qualification: { kind: 'COMMENT_KEYWORD' } });
+    expect(reading).toBeUndefined();
     expect(runtime.getPendingQualifications()).toHaveLength(0);
   });
 });

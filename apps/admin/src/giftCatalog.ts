@@ -14,33 +14,33 @@ type VerifiedGift = readonly [giftId: string, name: string, coins: number, verif
 // Verified on 2026-08-27. IDs and coin values are checked by
 // scripts/build-tiktok-gift-icons.py before the icon sheets are produced.
 const verifiedGifts: VerifiedGift[] = [
-  ['5269', 'TikTok', 1], ['5655', '玫瑰', 1, 'TIKFINITY_CAPTURED'],
-  ['5827', '冰淇淋甜筒', 1], ['6064', 'GG', 1], ['6093', '足球', 1],
-  ['6246', '点赞', 1], ['6247', '爱心', 1], ['6788', '荧光棒', 1],
-  ['6890', '我爱你', 1], ['7934', '爱我', 1, 'TIKFINITY_CAPTURED'],
-  ['15231', '非常爱你', 1, 'TIKFINITY_CAPTURED'],
-  ['5487', '手指爱心', 5], ['14786', '桃子', 5],
-  ['5480', '十金币爱心', 10], ['9947', '友谊项链', 10],
-  ['5658', '香水', 20], ['5879', '甜甜圈', 30],
-  ['5659', '千纸鹤', 99], ['6427', '帽子搭配小胡子', 99, 'TIKFINITY_CAPTURED'],
-  ['12678', '升级火花', 99, 'TIKFINITY_CAPTURED'],
-  ['13087', '泡泡糖', 99, 'TIKFINITY_CAPTURED'],
-  ['14109', '爱的印记', 99, 'TIKFINITY_CAPTURED'],
-  ['5585', '彩纸礼花', 100], ['5660', '双手爱心', 100],
-  ['17359', '毛毛虫总动员', 149, 'TIKFINITY_CAPTURED'], ['5586', '爱心雨', 199],
-  ['15191', '糖果花束', 249, 'TIKFINITY_CAPTURED'],
-  ['15763', '欢乐麦克风', 249, 'TIKFINITY_CAPTURED'],
-  ['17985', '温柔的声音', 249, 'TIKFINITY_CAPTURED'],
-  ['6007', '拳击手套', 299], ['6267', '柯基', 299],
-  ['8914', '永恒玫瑰', 399], ['5731', '珊瑚', 499],
-  ['7168', '钞票枪', 500], ['9948', '你真棒', 500],
-  ['5897', '天鹅', 699], ['5978', '火车', 899],
-  ['11046', '银河', 1000], ['14397', '精灵翅膀', 1000, 'TIKFINITY_CAPTURED'],
-  ['6090', '烟花', 1088], ['7467', '追逐梦想', 1500],
-  ['6862', '库珀飞回家', 1999], ['17762', '派对巴士', 2999],
-  ['6563', '流星雨', 3000], ['5767', '私人飞机', 4888],
-  ['6646', '小猫里昂', 4888, 'TIKFINITY_CAPTURED'],
-  ['14769', '英雄宇宙飞船', 4999], ['9500', '飞行喷气机', 5000],
+  ['5269', 'TikTok', 1], ['5655', 'Rose', 1, 'TIKFINITY_CAPTURED'],
+  ['5827', 'Ice Cream Cone', 1], ['6064', 'GG', 1], ['6093', 'Football', 1],
+  ['6246', 'Thumbs Up', 1], ['6247', 'Heart', 1], ['6788', 'Glow Stick', 1],
+  ['6890', 'I Love You', 1], ['7934', 'Love Me', 1, 'TIKFINITY_CAPTURED'],
+  ['15231', 'Love You So Much', 1, 'TIKFINITY_CAPTURED'],
+  ['5487', 'Finger Heart', 5], ['14786', 'Peach', 5],
+  ['5480', 'Ten Coin Heart', 10], ['9947', 'Friendship Necklace', 10],
+  ['5658', 'Perfume', 20], ['5879', 'Doughnut', 30],
+  ['5659', 'Paper Crane', 99], ['6427', 'Hat and Mustache', 99, 'TIKFINITY_CAPTURED'],
+  ['12678', 'Level-up Spark', 99, 'TIKFINITY_CAPTURED'],
+  ['13087', 'Bubble Gum', 99, 'TIKFINITY_CAPTURED'],
+  ['14109', 'Mark of Love', 99, 'TIKFINITY_CAPTURED'],
+  ['5585', 'Confetti', 100], ['5660', 'Hands Heart', 100],
+  ['17359', 'Caterpillar Party', 149, 'TIKFINITY_CAPTURED'], ['5586', 'Heart Rain', 199],
+  ['15191', 'Candy Bouquet', 249, 'TIKFINITY_CAPTURED'],
+  ['15763', 'Cheerful Microphone', 249, 'TIKFINITY_CAPTURED'],
+  ['17985', 'Gentle Voice', 249, 'TIKFINITY_CAPTURED'],
+  ['6007', 'Boxing Gloves', 299], ['6267', 'Corgi', 299],
+  ['8914', 'Eternal Rose', 399], ['5731', 'Coral', 499],
+  ['7168', 'Money Gun', 500], ['9948', 'You Are Awesome', 500],
+  ['5897', 'Swan', 699], ['5978', 'Train', 899],
+  ['11046', 'Galaxy', 1000], ['14397', 'Fairy Wings', 1000, 'TIKFINITY_CAPTURED'],
+  ['6090', 'Fireworks', 1088], ['7467', 'Chasing the Dream', 1500],
+  ['6862', 'Cooper Flies Home', 1999], ['17762', 'Party Bus', 2999],
+  ['6563', 'Meteor Shower', 3000], ['5767', 'Private Jet', 4888],
+  ['6646', 'Leon the Kitten', 4888, 'TIKFINITY_CAPTURED'],
+  ['14769', 'Hero Spaceship', 4999], ['9500', 'Flying Jets', 5000],
 ];
 
 export const referenceGiftCatalog: GiftCatalogEntry[] = verifiedGifts.map(([giftId, name, coins, verification]) => ({
@@ -62,6 +62,14 @@ export function giftIconUrl(giftId?: string, giftName?: string): string | undefi
     if (byId) return byId;
   }
   return giftName ? verifiedByName.get(giftName.trim().toLocaleLowerCase())?.iconUrl : undefined;
+}
+
+export function englishGiftName(giftId?: string, capturedName?: string): string {
+  const verified = giftId ? verifiedById.get(giftId)?.name : undefined;
+  if (verified) return verified;
+  const normalized = capturedName?.trim() ?? '';
+  if (normalized && /^[\x20-\x7E]+$/.test(normalized)) return normalized;
+  return giftId ? `TikTok Gift ${giftId}` : 'TikTok Gift';
 }
 
 export function giftGlyph(name: string): string {

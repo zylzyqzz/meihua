@@ -30,7 +30,7 @@ type StageCopy = {
 
 const stageCopy: Record<ContentLanguage, StageCopy> = {
   en: {
-    brand: 'MEIHUA · LIVE CAST', idleHint: 'Ask one clear question in the chat', queueTitle: 'WAITING LIST', queueEmpty: 'No one is waiting yet',
+    brand: 'MEIHUA · LIVE CAST', idleHint: '100 likes or 4 Roses unlock a reading. Then ask one clear question.', queueTitle: 'WAITING LIST', queueEmpty: 'No one is waiting yet',
     castStatus: 'CASTING NOW', hexTitle: 'THE READING', hexEmpty: 'Waiting to cast',
     giftPendingResult: 'Priority saved — ask your question', giftAppliedResult: 'Priority updated in the waiting list', honorific: 'for',
   },
@@ -171,26 +171,11 @@ function StageHexagramPanel({ snapshot, config, copy }: { snapshot: BroadcastSna
   </section>;
 }
 
-function StageReadingScript({ snapshot }: { snapshot: BroadcastSnapshotV2 }) {
-  const reading = snapshot.reading;
-  const answer = reading?.answer;
-  if (!reading || !answer) return null;
-  const pipeline = reading.pipeline;
-  return <section className="stage-panel stage-reading-script">
-    <header><b>本次卦辞话术</b><span>{pipeline?.phaseLabel ?? '已生成'} · {pipeline?.progress ?? 0}% · {reading.speechTargetSeconds ?? '--'}秒 · {answer.speechUnits ?? '--'}/{answer.targetSpeechUnits ?? '--'}单位</span></header>
-    <div className="stage-reading-script-body">
-      {answer.opening ? <strong>{answer.opening}</strong> : null}
-      <p>{answer.speech}</p>
-      {answer.closing ? <small>{answer.closing}</small> : null}
-    </div>
-  </section>;
-}
-
 function StageGiftBanner({ snapshot, copy }: { snapshot: BroadcastSnapshotV2; copy: StageCopy }) {
   const now = Date.now();
-  const gift = [...snapshot.sideCues].reverse().find((cue) => cue.track === 'GIFT' && (!cue.endsAt || cue.endsAt > now));
-  if (!gift) return null;
-  const payload = gift.payload as Record<string, unknown>;
+  const qualification = [...snapshot.sideCues].reverse().find((cue) => cue.stage === 'QUALIFIED' && (!cue.endsAt || cue.endsAt > now));
+  if (!qualification) return null;
+  const payload = qualification.payload as Record<string, unknown>;
   const result = payload.action === 'APPLIED_TO_QUEUE' ? copy.giftAppliedResult : copy.giftPendingResult;
   return <section className="stage-gift">
     <div><b>@{String(payload.username ?? '')}</b></div>

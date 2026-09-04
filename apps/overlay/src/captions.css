@@ -1,0 +1,42 @@
+/* Production captions: one timeline segment at a time, never a full script block. */
+.source-subtitles .source-root {
+  padding: 0;
+}
+
+.source-subtitles .subtitles {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 10px 22px;
+  border: 0;
+  border-radius: 14px;
+  background: rgba(5, 8, 12, 0.72);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.source-subtitles .subtitles strong {
+  max-width: 100%;
+  font-size: clamp(24px, 4.2vw, 42px);
+  line-height: 1.35;
+  text-wrap: balance;
+  text-shadow: 0 2px 8px #000;
+  animation: caption-in 0.18s ease-out;
+}
+
+.current-question {
+  display: block;
+  margin: 6px auto 10px;
+  max-width: 94%;
+  font-size: 0.9em;
+  line-height: 1.35;
+  color: #fff;
+}
+
+.current > strong {
+  color: var(--accent);
+}
+
+@keyframes caption-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}

@@ -22,6 +22,7 @@ import type {
   SceneProfileVersion,
   SpeechSegment,
 } from "@meihua/core-types";
+import "./captions.css";
 import "./obs-output.css";
 import { formatHexagramDisplayName } from "@meihua/answer-composer";
 import { StageSource } from "./stage.js";
@@ -1113,10 +1114,9 @@ export function SourceContent({
   previewId?: string;
   embeddedSize?: { width: number; height: number };
 }) {
-  // The spoken interpretation is audio-only.  Never mirror the narration or
-  // subtitle segment into the OBS canvas; viewers should see the hexagram and
-  // result metadata while the single Audio Bus carries the actual reading.
-  if (sourceId === "audio" || sourceId === "subtitles") return null;
+  // Audio is emitted only by the native Audio Bus. Captions are visual-only
+  // and advance from the same immutable speech timeline as the WAV.
+  if (sourceId === "audio") return null;
   const profile = snapshot.profileVersion.profile;
   const config = profile.sources[sourceId];
   const decorationAsset =
@@ -1233,6 +1233,9 @@ export function SourceContent({
       <section className="panel current">
         {title}
         <p>@{current?.username ?? "WAITING"}</p>
+        <span className="current-question">
+          {current?.normalizedQuestion ?? current?.rawQuestion ?? config.idleText}
+        </span>
         <strong>
           {current?.meihua?.primary
             ? formatHexagramDisplayName(
@@ -1242,16 +1245,6 @@ export function SourceContent({
               )
             : config.idleText || "WAITING FOR A CAST"}
         </strong>
-        {current?.qualification && (
-          <small>
-            {qualificationLabel(
-              current.qualification.kind,
-              current.qualification.label,
-              current.gift?.giftName,
-            )}{" "}
-            · {current.speechTargetSeconds ?? "--"} SEC
-          </small>
-        )}
       </section>
     );
   else if (sourceId === "hexagram") {
@@ -1301,6 +1294,12 @@ export function SourceContent({
         </footer>
       </section>
     );
+  } else if (sourceId === "subtitles") {
+    content = segment ? (
+      <section className={`panel subtitles ${segment.emphasis ? "emphasis" : ""}`} aria-live="polite">
+        <strong key={segment.segmentId}>{segment.text}</strong>
+      </section>
+    ) : null;
   } else if (sourceId === "queue") {
     const copy = sourceCopy.en;
     content = (

@@ -1,0 +1,65 @@
+/* Final production layout: group controls by the operator's task path. */
+.connect-page .connect-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+.connect-page .connect-grid > article,
+.connect-page .connect-grid > article:nth-child(2),
+.connect-page .connect-grid > article:nth-child(4) {
+  grid-column: auto;
+  min-height: 0;
+  height: auto;
+  padding: 20px;
+  background: #fff;
+}
+
+.connect-page .connect-grid > .voice-card {
+  grid-column: 1 / -1;
+  min-height: 0;
+}
+
+.connect-page .presentation-panel {
+  background: #fff;
+}
+
+.queue-policy-panel .policy-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.gift-rule-grid > article {
+  grid-template-columns: 50px minmax(0, 1fr) minmax(96px, 0.55fr) minmax(110px, 0.65fr) auto;
+  grid-template-rows: auto;
+}
+
+.gift-rule-grid article > label:not(.gift-enable) {
+  grid-column: auto;
+}
+
+.dashboard-grid {
+  grid-auto-flow: row dense;
+  align-items: start;
+}
+
+.program-monitor,
+.right-rail,
+.activity-panel,
+.health-panel,
+.preflight-panel {
+  align-self: start;
+}
+
+@media (max-width: 1120px) {
+  .connect-page .connect-grid { grid-template-columns: 1fr; }
+  .connect-page .connect-grid > article,
+  .connect-page .connect-grid > article:nth-child(2),
+  .connect-page .connect-grid > article:nth-child(4),
+  .connect-page .connect-grid > .voice-card { grid-column: 1; }
+  .gift-rule-grid > article { grid-template-columns: 50px minmax(0, 1fr) auto; grid-template-rows: auto auto; }
+  .gift-rule-grid article > label:not(.gift-enable) { grid-column: 2; }
+}
+
+@media (max-width: 720px) {
+  .queue-policy-panel .policy-fields { grid-template-columns: 1fr; }
+}
