@@ -44,6 +44,19 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Bundle verification failed. Startup was stopped to avoid running an incomplete package.' }
   Write-Step 'OK' 'Bundle files, models, and runtimes passed verification'
 
+  $portableImporter = $null
+  foreach ($candidate in @(
+    (Join-Path $PSScriptRoot 'import-portable-config.ps1'),
+    (Join-Path $bundle 'runtime-tools\import-portable-config.ps1')
+  )) {
+    if (Test-Path -LiteralPath $candidate) { $portableImporter = $candidate; break }
+  }
+  if ($portableImporter -and (Test-Path -LiteralPath (Join-Path $bundle 'private-config'))) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $portableImporter -BundleRoot $bundle
+    if ($LASTEXITCODE -ne 0) { throw 'Configured-state migration failed. Startup was stopped before changing the running system.' }
+    Write-Step 'OK' 'Configured models, provider credentials, and OBS scene were migrated for this Windows account'
+  }
+
   $environment = Find-Tool 'setup-assistant.ps1' 'setup-assistant.ps1'
   $environmentArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $environment, '-BundleRoot', $bundle, '-NoClear', '-SkipPackageVerification', '-ReportPath', (Join-Path $logs 'last-environment-report.json'))
   if ($SkipSystemInstall) { $environmentArgs += '-CheckOnly' } else { $environmentArgs += '-AutoInstall' }

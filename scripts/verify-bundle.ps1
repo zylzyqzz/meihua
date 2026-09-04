@@ -77,6 +77,7 @@ $required = @(
   @('安装工具\内部\bootstrap-bundle.ps1', 'Unified setup implementation'),
   @('安装工具\内部\start-bundle-silent.ps1', 'Production startup implementation'),
   @('runtime-tools\bootstrap-bundle.ps1', 'Locale-safe unified setup implementation'),
+  @('runtime-tools\import-portable-config.ps1', 'Configured-state migration implementation'),
   @('runtime-tools\verify-bundle.ps1', 'Locale-safe bundle verification implementation'),
   @('runtime-tools\setup-assistant.ps1', 'Locale-safe environment setup implementation'),
   @('runtime-tools\start-bundle-silent.ps1', 'Locale-safe production startup implementation'),
@@ -192,6 +193,14 @@ if (Test-Path -LiteralPath $hashManifest) {
   }
 } else {
   Write-Result $false 'Installer checksum manifest' 'installers\SHA256.txt'
+}
+
+$privateRoot = Join-Path $bundle 'private-config'
+if (Test-Path -LiteralPath $privateRoot) {
+  $portableSecrets = Join-Path $privateRoot 'secrets.portable.json'
+  $importMarker = Join-Path $bundle 'app\data\.portable-config-imported.json'
+  Write-Result ((Test-Path -LiteralPath $portableSecrets) -or (Test-Path -LiteralPath $importMarker)) 'Configured-state migration payload'
+  Write-Result (Test-Path -LiteralPath (Join-Path $privateRoot 'obs\scenes\MeihuaStudio.json')) 'Configured OBS unified scene'
 }
 
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue

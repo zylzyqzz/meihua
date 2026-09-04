@@ -155,6 +155,7 @@ Copy-Item (Join-Path $ProjectRoot 'scripts\verify-bundle.ps1') (Join-Path $inter
 Copy-Item (Join-Path $ProjectRoot 'scripts\setup-assistant.ps1') (Join-Path $internalToolsDirectory '环境助手.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\start-bundle-silent.ps1') (Join-Path $internalToolsDirectory '静默启动.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\bootstrap-bundle.ps1') (Join-Path $internalToolsDirectory '一键安装启动.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\import-portable-config.ps1') (Join-Path $internalToolsDirectory '导入原机配置.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\resolve-gpu-profile.ps1') (Join-Path $internalToolsDirectory 'resolve-gpu-profile.ps1') -Force
 # ASCII aliases keep the internal PowerShell entry points compatible with the
 # stock Windows PowerShell 5.1 parser on every system locale.
@@ -162,10 +163,12 @@ Copy-Item (Join-Path $ProjectRoot 'scripts\verify-bundle.ps1') (Join-Path $inter
 Copy-Item (Join-Path $ProjectRoot 'scripts\setup-assistant.ps1') (Join-Path $internalToolsDirectory 'setup-assistant.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\start-bundle-silent.ps1') (Join-Path $internalToolsDirectory 'start-bundle-silent.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\bootstrap-bundle.ps1') (Join-Path $internalToolsDirectory 'bootstrap-bundle.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\import-portable-config.ps1') (Join-Path $internalToolsDirectory 'import-portable-config.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\verify-bundle.ps1') (Join-Path $asciiToolsDirectory 'verify-bundle.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\setup-assistant.ps1') (Join-Path $asciiToolsDirectory 'setup-assistant.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\start-bundle-silent.ps1') (Join-Path $asciiToolsDirectory 'start-bundle-silent.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\bootstrap-bundle.ps1') (Join-Path $asciiToolsDirectory 'bootstrap-bundle.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\import-portable-config.ps1') (Join-Path $asciiToolsDirectory 'import-portable-config.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\resolve-gpu-profile.ps1') (Join-Path $asciiToolsDirectory 'resolve-gpu-profile.ps1') -Force
 
 $verifyBat = @"

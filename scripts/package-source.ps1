@@ -4,12 +4,15 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$Destination,
   [string]$PythonExe = 'python',
+  [string]$RuntimeDataRoot = '',
   [string]$GptSoVitsRoot = '',
   [string]$MuseTalkRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath $ProjectRoot).Path
+if ([string]::IsNullOrWhiteSpace($RuntimeDataRoot)) { $RuntimeDataRoot = Join-Path $project 'data' }
+$runtimeData = (Resolve-Path -LiteralPath $RuntimeDataRoot).Path
 $destinationFull = [System.IO.Path]::GetFullPath($Destination)
 if ($destinationFull.StartsWith($project + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
   throw 'Destination must be outside the source project to prevent recursive packaging.'
@@ -67,7 +70,7 @@ New-Item -ItemType Directory -Path $targetTools -Force | Out-Null
 if (Test-Path -LiteralPath $sourceFfmpeg) { Copy-Item -LiteralPath $sourceFfmpeg -Destination (Join-Path $targetTools 'ffmpeg.exe') -Force }
 
 # Preserve the current configured scene and all user-facing materials. Exclude secrets, logs, caches and old backups.
-$sourceData = Join-Path $project 'data'
+$sourceData = $runtimeData
 $targetData = Join-Path $destinationFull 'data'
 New-Item -ItemType Directory -Path $targetData -Force | Out-Null
 foreach ($materialDirectory in @('media', 'lux3d', 'audio', 'voices')) {
