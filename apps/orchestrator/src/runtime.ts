@@ -1354,6 +1354,19 @@ export class LiveRuntime {
       }
       this.persistence.setSetting('production-scene-v3', true);
     }
+    // Production scene V4: the presentation layer owns the full video/person
+    // frame. Legacy decoration bindings could scale a sticker over the host.
+    if (!this.persistence.getSetting<boolean>('production-scene-v4', false)) {
+      for (const version of [this.publishedProfileVersion, this.draftProfileVersion]) {
+        const profile = structuredClone(version.profile);
+        profile.sources.avatar = { ...profile.sources.avatar, decorationAssetId: undefined };
+        const migrated = { ...version, profile };
+        if (version.status === 'PUBLISHED') this.publishedProfileVersion = migrated;
+        else this.draftProfileVersion = migrated;
+        this.persistence.saveSceneProfileVersion(migrated);
+      }
+      this.persistence.setSetting('production-scene-v4', true);
+    }
     const openSession = this.persistence.getOpenLiveSession();
     if (openSession) {
       this.currentSession = { ...openSession, status: 'RECOVERING', lastHeartbeatAt: Date.now(), endReason: 'PROCESS_RESTART_RECOVERY' };
@@ -2230,6 +2243,7 @@ export class LiveRuntime {
       }
     }
     const normalized = migrateSceneComposition(profile);
+    normalized.sources.avatar = { ...normalized.sources.avatar, decorationAssetId: undefined };
     this.validateComposition(normalized);
     return normalized;
   }

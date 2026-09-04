@@ -79,7 +79,7 @@ type Props = {
   assets: MediaAsset[];
   giftRules: GiftRule[];
   stageStatus?: string;
-  /** When LIVE, show the same director-controlled OBS source as the monitor. */
+  /** When LIVE, keep the published OBS output isolated from this editable draft. */
   livePreview?: boolean;
   /** `true` reloads the published draft after an atomic publish; `false` only refreshes assets. */
   onReload: (replaceEditable?: boolean) => Promise<void>;
@@ -365,6 +365,11 @@ function StudioWorkbenchView({
   const futureRef = useRef<SceneComposition[]>([]);
   const dragRef = useRef<DragState | undefined>(undefined);
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const previewIdRef = useRef<string | undefined>(undefined);
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const pendingPreviewProfileRef = useRef<SceneProfile | undefined>(undefined);
+  const previewRequestInFlightRef = useRef(false);
+  const previewMountedRef = useRef(true);
   const notifyRef = useRef(notify);
   useEffect(() => {
     notifyRef.current = notify;
@@ -376,6 +381,7 @@ function StudioWorkbenchView({
     futureRef.current = [];
   }, [draft.versionId, draft.version]);
   useEffect(() => {
+    previewMountedRef.current = true;
     let active = true;
     let sessionId: string | undefined;
     void adminRequest<{ previewSessionId: string }>("/api/preview-sessions", {
@@ -390,11 +396,13 @@ function StudioWorkbenchView({
           return;
         }
         sessionId = session.previewSessionId;
+        previewIdRef.current = sessionId;
         setPreviewId(sessionId);
       })
       .catch(() => notifyRef.current("草稿预览连接失败，已保留正式画面预览"));
     return () => {
       active = false;
+      previewMountedRef.current = false;
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
       if (sessionId)
         void adminRequest(`/api/preview-sessions/${sessionId}`, {
@@ -404,15 +412,54 @@ function StudioWorkbenchView({
   // A preview belongs to this workbench mount, not to a parent re-render.
   // Recreating it on every notification reset the iframe/video and made editing feel stuck.
   }, []);
+
+  const flushPreviewUpdate = async () => {
+    const sessionId = previewIdRef.current;
+    const profile = pendingPreviewProfileRef.current;
+    if (!sessionId || !profile || previewRequestInFlightRef.current) return;
+    pendingPreviewProfileRef.current = undefined;
+    previewRequestInFlightRef.current = true;
+    try {
+      await adminRequest(`/api/preview-sessions/${sessionId}`, {
+        method: "PUT",
+        body: JSON.stringify({ profile }),
+      });
+    } catch {
+      // A preview failure must not block local editing or the published OBS output.
+    } finally {
+      previewRequestInFlightRef.current = false;
+      if (previewMountedRef.current && pendingPreviewProfileRef.current) {
+        previewTimerRef.current = setTimeout(() => {
+          previewTimerRef.current = undefined;
+          void flushPreviewUpdate();
+        }, 60);
+      }
+    }
+  };
+
+  const sendPreviewToFrame = (profile: SceneProfile) => {
+    const frame = previewFrameRef.current;
+    const sessionId = previewIdRef.current;
+    if (!frame?.contentWindow || !sessionId) return;
+    frame.contentWindow.postMessage(
+      {
+        type: "MEIHUA_PREVIEW_PROFILE",
+        previewSessionId: sessionId,
+        profile,
+      },
+      new URL(overlayBase).origin,
+    );
+  };
+
   useEffect(() => {
     if (!previewId) return;
+    sendPreviewToFrame(workingProfile);
+    pendingPreviewProfileRef.current = workingProfile;
     if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     previewTimerRef.current = setTimeout(() => {
-      void adminRequest(`/api/preview-sessions/${previewId}`, {
-        method: "PUT",
-        body: JSON.stringify({ profile: workingProfile }),
-      }).catch(() => undefined);
-    }, 80);
+      previewTimerRef.current = undefined;
+      void flushPreviewUpdate();
+    }, 180);
     return () => {
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
     };
@@ -423,9 +470,7 @@ function StudioWorkbenchView({
     [composition.layers],
   );
   const stageUrl = `${overlayBase}/obs/source/meihua-stage`;
-  const draftStageUrl = livePreview
-    ? stageUrl
-    : previewId
+  const draftStageUrl = previewId
     ? `${overlayBase}/preview/${previewId}/source/meihua-stage`
     : stageUrl;
   const updateProfile = (profile: SceneProfile) => {
@@ -715,6 +760,7 @@ function StudioWorkbenchView({
     if (!selected) return false;
     if (selected.kind === "ASSET") return asset.kind !== "LUX3D_MODEL";
     if (selected.kind !== "MODULE") return false;
+    if (selected.moduleId === "avatar") return false;
     if (selected.moduleId === "lux3d")
       return ["LUX3D_MODEL", "OVERLAY_IMAGE"].includes(asset.kind);
     return (
@@ -953,9 +999,13 @@ function StudioWorkbenchView({
           <div className="mw-canvas-caption">
             <span>
               <i />
-            草稿预览 · 本地编辑框
+              草稿预览 · 操作后自动同步
             </span>
-            <b>安全区 1080 × 1920</b>
+            <b>
+              {livePreview
+                ? "直播画面不受影响 · 发布后生效"
+                : "安全区 1080 × 1920"}
+            </b>
           </div>
           <div
             className="mw-stage-shell"
@@ -966,9 +1016,11 @@ function StudioWorkbenchView({
               style={{ transform: `scale(${zoom / 100})` }}
             >
               <iframe
+                ref={previewFrameRef}
                 className="mw-stage-live-render"
                 title="草稿舞台实时画面"
                 src={draftStageUrl}
+                onLoad={() => sendPreviewToFrame(workingProfile)}
               />
               {composition.layers
                 .filter((layer) => layer.visible)
@@ -1585,38 +1637,40 @@ function ModuleInspector({
             />
           </label>
         </div>
-        <label>
-          {layer.moduleId === "background" ? "背景图片 / 视频" : "装饰素材"}
-          <select
-            value={source[assetField] ?? ""}
-            onChange={(event) =>
-              patch({ [assetField]: event.target.value || undefined })
-            }
+        {layer.moduleId !== "avatar" ? <>
+          <label>
+            {layer.moduleId === "background" ? "背景图片 / 视频" : "装饰素材"}
+            <select
+              value={source[assetField] ?? ""}
+              onChange={(event) =>
+                patch({ [assetField]: event.target.value || undefined })
+              }
+            >
+              <option value="">不使用素材</option>
+              {assets
+                .filter(
+                  (asset) =>
+                    asset.mimeType.startsWith("image/") ||
+                    (layer.moduleId === "background" &&
+                      asset.mimeType.startsWith("video/")),
+                )
+                .map((asset) => (
+                  <option key={asset.id} value={asset.id}>
+                    {asset.mimeType.startsWith("video/") ? "视频 · " : ""}
+                    {asset.fileName}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <button
+            className={layer.moduleId === "background" ? "primary" : ""}
+            onClick={onOpenLibrary}
           >
-            <option value="">不使用素材</option>
-            {assets
-              .filter(
-                (asset) =>
-                  asset.mimeType.startsWith("image/") ||
-                  (layer.moduleId === "background" &&
-                    asset.mimeType.startsWith("video/")),
-              )
-              .map((asset) => (
-                <option key={asset.id} value={asset.id}>
-                  {asset.mimeType.startsWith("video/") ? "视频 · " : ""}
-                  {asset.fileName}
-                </option>
-              ))}
-          </select>
-        </label>
-        <button
-          className={layer.moduleId === "background" ? "primary" : ""}
-          onClick={onOpenLibrary}
-        >
-          {layer.moduleId === "background"
-            ? "选择图片或视频背景"
-            : "打开素材库"}
-        </button>
+            {layer.moduleId === "background"
+              ? "选择图片或视频背景"
+              : "打开素材库"}
+          </button>
+        </> : <small>播报画面由“接入与播报 → 最终画面”统一提供，不允许叠加装饰素材，避免遮挡人物和视频。</small>}
         {layer.moduleId === "background" && (
           <small>支持 MP4 / WebM，正式舞台与草稿预览均会静音、循环播放。</small>
         )}

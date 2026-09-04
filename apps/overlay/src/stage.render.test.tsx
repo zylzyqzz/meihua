@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import type { BroadcastSnapshotV2, DirectorStage, HexagramLine, ObsSourceConfig, Reading, SceneProfile } from '@meihua/core-types';
-import { qualificationLabel, sourceStyle } from './App.js';
+import { qualificationLabel, sourceStyle, SourceContent } from './App.js';
 import { StageSource } from './stage.js';
 
 /**
@@ -166,6 +166,21 @@ describe('integrated stage server render', () => {
     expect(html).not.toContain('stage-person media');
     expect(html).not.toContain('stage-person-empty');
     expect(html).not.toContain('media-assets/video');
+  });
+
+  it('never paints a decoration asset over the presentation layer', () => {
+    const snapshot = snapshotFor('IDLE', { reading: false });
+    snapshot.profileVersion.profile.sources.avatar = {
+      ...stageConfig(), sourceId: 'avatar', decorationAssetId: 'oversized-compass',
+    };
+    snapshot.mediaAssets = [{
+      id: 'oversized-compass', kind: 'OVERLAY_IMAGE', origin: 'SYSTEM', fileName: 'compass.png',
+      mimeType: 'image/png', contentHash: 'compass-hash', sizeBytes: 1024, storagePath: 'compass.png',
+      storageKey: 'compass.png', transparency: 'PRESENT', createdAt: Date.now(),
+    }];
+    const html = renderToString(<SourceContent sourceId="avatar" snapshot={snapshot} serverNow={() => Date.now()} />);
+    expect(html).not.toContain('source-decoration-asset');
+    expect(html).not.toContain('oversized-compass');
   });
 });
 

@@ -19,6 +19,7 @@ import type {
   ObsSourceConfig,
   ObsSourceId,
   QueueOverviewEntry,
+  SceneProfile,
   SceneProfileVersion,
   SpeechSegment,
 } from "@meihua/core-types";
@@ -206,6 +207,32 @@ function useBroadcast(previewId?: string, sourceId?: ObsSourceId) {
       );
       setClockOffset(value.serverTime - Date.now());
     };
+    const receivePreviewProfile = (event: MessageEvent) => {
+      if (!previewId || event.source !== window.parent) return;
+      const message = event.data as {
+        type?: string;
+        previewSessionId?: string;
+        profile?: SceneProfile;
+      };
+      if (
+        message?.type !== "MEIHUA_PREVIEW_PROFILE" ||
+        message.previewSessionId !== previewId ||
+        !message.profile?.sources
+      )
+        return;
+      setSnapshot((current) =>
+        current
+          ? {
+              ...current,
+              profileVersion: {
+                ...current.profileVersion,
+                profile: message.profile as SceneProfile,
+              },
+            }
+          : current,
+      );
+    };
+    window.addEventListener("message", receivePreviewProfile);
     const recoverExpiredToken = () => {
       const key = 'meihua-overlay-auth-reload-at';
       const previous = Number(window.sessionStorage.getItem(key) ?? 0);
@@ -272,6 +299,7 @@ function useBroadcast(previewId?: string, sourceId?: ObsSourceId) {
     poll = setInterval(load, 3_000);
     return () => {
       stopped = true;
+      window.removeEventListener("message", receivePreviewProfile);
       if (retry) clearTimeout(retry);
       if (poll) clearInterval(poll);
       socket?.close();
@@ -396,10 +424,10 @@ function Frame({
     config.contentOnly ?? (backgroundMode === "transparent" && borderless);
   // The composition desk is black by design; it must not replace each source's
   // formal OBS background configuration.
-  const canvasPreview = new URLSearchParams(window.location.search).has(
-    "canvas",
-  );
-  const showMode = new URLSearchParams(window.location.search).has("show");
+  const locationSearch =
+    typeof window === "undefined" ? "" : window.location.search;
+  const canvasPreview = new URLSearchParams(locationSearch).has("canvas");
+  const showMode = new URLSearchParams(locationSearch).has("show");
   // 预览小窗跟随设计尺寸：后台改宽度/高度，弹窗自动调整到新尺寸（含浏览器边框）
   useEffect(() => {
     if (!showMode) return;
@@ -1122,6 +1150,7 @@ export function SourceContent({
   const decorationAsset =
     sourceId !== "background" &&
     sourceId !== "sticker" &&
+    sourceId !== "avatar" &&
     config.decorationAssetId
       ? snapshot.mediaAssets?.find(
           (asset) =>
@@ -1138,7 +1167,9 @@ export function SourceContent({
   const current = snapshot.reading;
   // 工作台画布模式（?canvas=1）：模块始终可见（显示待机内容），
   // 让操作者在排版时能看到全部模块；正式输出仍遵循 idleBehavior。
-  const urlParams = new URLSearchParams(window.location.search);
+  const urlParams = new URLSearchParams(
+    typeof window === "undefined" ? "" : window.location.search,
+  );
   const canvasMode = urlParams.has("canvas");
   // ?show=1 独立窗口预览：模块始终显示（无任务/停用时给待机占位），方便检查样式
   const showMode = urlParams.has("show");

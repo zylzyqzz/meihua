@@ -181,6 +181,14 @@ describe('V2 director and synchronized plan', () => {
     expect(runtime.deleteMediaAsset('asset-used')).toMatchObject({ ok: false, usages: expect.arrayContaining([expect.stringContaining('被引用素材')]) });
   });
 
+  it('strips decoration assets from the full-screen presentation layer', () => {
+    const runtime = createRuntime();
+    const draft = structuredClone(runtime.getSceneDraft().profile);
+    draft.sources.avatar = { ...draft.sources.avatar, decorationAssetId: 'oversized-compass' };
+    const updated = runtime.updateSceneDraft(draft);
+    expect(updated.profile.sources.avatar.decorationAssetId).toBeUndefined();
+  });
+
   it('allocates the exact WAV duration with a 900ms segment minimum', () => {
     const plan = buildSpeechPlan('reading-1', { opening: 'Hello, your reading is ready.', speech: 'The first point is steady progress. The key is one practical step. Review the result before expanding.', keywords: ['practical step'], closing: 'Use this as personal reflection.', estimatedSeconds: 12 }, 12_000);
     expect(plan.segments.reduce((sum, item) => sum + item.durationMs, 0)).toBe(12_000);
