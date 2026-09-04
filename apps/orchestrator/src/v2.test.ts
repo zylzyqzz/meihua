@@ -260,6 +260,19 @@ describe('V2 director and synchronized plan', () => {
     expect(updated.engagement.likeRules[0]).toMatchObject({ threshold: 80, label: '累计点赞 80 次' });
   });
 
+  it('ships comprehensive multilingual question recognition and one entitlement timeout', () => {
+    const runtime = createRuntime();
+    const defaults = runtime.getSettings();
+    expect(defaults.engagement.commentRules[0]?.keywords.length).toBeGreaterThan(100);
+    expect(defaults.engagement.commentRules[0]?.keywords).toEqual(expect.arrayContaining([
+      '什么时候发财', 'when will', 'est-ce que', '転職', '이직', 'quando', 'стоит ли',
+    ]));
+    const updated = runtime.updateSettings({ queue: { expireMinutes: 24 } });
+    expect(updated.gifts.entitlementExpireMinutes).toBe(24);
+    expect(updated.engagement.likeRules.every((rule) => rule.grantExpireMinutes === 24)).toBe(true);
+    expect(updated.engagement.commentRules.every((rule) => rule.queueExpireMinutes === 24)).toBe(true);
+  });
+
   it('drives a measured WAV through the native backend playback contract', async () => {
     const runtime = createRuntime();
     runtime.updateSettings({

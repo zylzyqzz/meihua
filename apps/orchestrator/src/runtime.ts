@@ -105,10 +105,17 @@ const pipelinePhaseProgress: Record<ReadingPipelinePhase, number> = {
 // commands ("测算", "reading") and natural questions ("今年适合换工作吗？").
 // Matching is still followed by moderation, length checks and queue dedupe.
 const defaultCommentKeywords = [
-  '测算', '测一卦', '算一卦', '起卦', '占卜', '解卦', '问卦', '梅花易数', '卦象', '卦辞', '帮我算', '帮我测', '请测', '想测', '想问', '问一下',
-  '适合吗', '可以吗', '能不能', '可不可以', '行不行', '该不该', '要不要', '会不会', '能否', '是否', '如何', '怎么', '怎样', '什么时候', '多久', '为什么', '什么', '吗', '呢', '？', '?',
-  '工作', '事业', '职业', '上班', '跳槽', '换工作', '创业', '生意', '合作', '项目', '财运', '钱财', '收入', '投资', '买房', '卖房', '搬家', '出行', '旅行', '学习', '学业', '考试', '留学', '感情', '恋爱', '对象', '婚姻', '复合', '桃花', '家庭',
-  'reading', 'fortune', 'divination', 'hexagram', 'meihua', 'cast', 'calculate', 'read me', 'ask me', 'question', 'please read', 'should i', 'can i', 'will i', 'is it', 'what', 'when', 'where', 'why', 'how', 'career', 'job', 'work', 'business', 'money', 'finance', 'love', 'relationship', 'marriage', 'study', 'exam', 'school', 'move', 'travel', 'project', 'decision', '?',
+  '测算', '测一卦', '算一卦', '起卦', '占卜', '解卦', '问卦', '梅花易数', '看卦', '卦象', '卦辞', '帮我算', '帮我测', '请测', '想测', '想问', '问一下',
+  '适合吗', '可以吗', '能不能', '可不可以', '行不行', '该不该', '要不要', '会不会', '能否', '是否', '如何', '怎么办', '怎么样', '怎样', '什么时候', '何时', '多久', '为什么', '结果如何', '发展如何', '有机会吗', '能成功吗', '值得吗', '选哪个', '哪一个', '？', '?',
+  '换工作', '找工作', '事业发展', '适合创业', '生意如何', '合作顺利吗', '项目能成吗', '什么时候发财', '财运如何', '收入会增加吗', '投资适合吗', '买房合适吗', '卖房顺利吗', '搬家合适吗', '出行顺利吗', '旅行合适吗', '考试能过吗', '学业如何', '能留学吗', '感情如何', '会复合吗', '桃花如何', '婚姻如何', '家庭关系',
+  'reading', 'fortune reading', 'divination', 'hexagram', 'meihua', 'cast for me', 'calculate for me', 'read me', 'give me a reading', 'please read', 'should i', 'can i', 'could i', 'will i', 'would it', 'is it', 'are we', 'do i', 'does this', 'what will', 'when will', 'where should', 'why is', 'how will', 'how can', 'which one', 'career', 'new job', 'change jobs', 'business', 'money', 'finance', 'income', 'investment', 'love', 'relationship', 'marriage', 'reconcile', 'study', 'exam', 'school', 'move house', 'travel', 'project', 'decision',
+  'lectura', 'adivinación', 'debería', 'puedo', 'podré', 'cuándo', 'cómo', 'trabajo', 'dinero', 'amor', 'relación',
+  'lecture', 'divination', 'dois-je', 'puis-je', 'est-ce que', 'quand', 'comment', 'travail', 'argent', 'amour', 'relation',
+  'deutung', 'wahrsagung', 'sollte ich', 'kann ich', 'werde ich', 'wann', 'wie', 'arbeit', 'geld', 'liebe', 'beziehung',
+  '占って', '占い', '易占', 'どうすれば', 'できますか', 'でしょうか', 'いつ', '仕事', '転職', 'お金', '恋愛', '結婚',
+  '점쳐', '운세', '괘', '어떻게', '할까요', '가능할까요', '언제', '직업', '이직', '돈', '연애', '결혼',
+  'leitura', 'adivinhação', 'devo', 'posso', 'quando', 'como', 'trabalho', 'dinheiro', 'amor', 'relacionamento',
+  'гадание', 'предсказание', 'стоит ли', 'смогу ли', 'когда', 'как', 'работа', 'деньги', 'любовь', 'отношения',
 ];
 
 export const defaultSettings: AppSettings = {
@@ -141,7 +148,7 @@ export const defaultSettings: AppSettings = {
     likeRules: [{ id: 'likes-100', enabled: true, label: '100 Likes', threshold: 100, priority: 'NORMAL', speechTargetSeconds: 30, grantExpireMinutes: 30, cooldownMinutes: 30 }],
     // Keywords can grant a viewer the right to ask next. A formal reading is
     // still created only after question moderation accepts a clear question.
-    commentRules: [{ id: 'comment-reading', enabled: true, label: '请求测算资格（中英文）', keywords: ['测算', '测一卦', '算一卦', '起卦', '占卜', '解卦', '问卦', '梅花易数', '帮我算', '帮我测', '请测', '想测', 'reading', 'fortune', 'divination', 'hexagram', 'meihua', 'read me'], matchMode: 'CONTAINS', stripKeyword: true, priority: 'NORMAL', speechTargetSeconds: 30, queueExpireMinutes: 20, cooldownMinutes: 10 }],
+    commentRules: [{ id: 'comment-reading', enabled: true, label: '多语言问题识别', keywords: defaultCommentKeywords, matchMode: 'CONTAINS', stripKeyword: false, priority: 'NORMAL', speechTargetSeconds: 30, queueExpireMinutes: 20, cooldownMinutes: 10 }],
   },
   overlay: {
     disclaimer: 'Traditional cultural entertainment only. Not professional advice.',
@@ -392,7 +399,7 @@ function normalizeCommentRules(value: unknown): CommentRule[] {
   // Broad interrogation words and a bare question mark were temporarily used
   // as automatic queue triggers. They match ordinary chat and must be
   // replaced during migration with recognition-only question vocabulary.
-  const hasUnsafeBroadKeyword = storedKeywords.some((keyword) => [
+  const hasUnsafeBroadKeyword = storedKeywords.length <= 25 && storedKeywords.some((keyword) => [
     'a', '?', '？', 'what', 'when', 'where', 'why', 'how', 'should i', 'can i',
     'will i', 'is it', 'question', 'job', 'work', 'money', 'love', 'career',
   ].includes(keyword));
@@ -1213,6 +1220,8 @@ export class LiveRuntime {
     this.settings = normalizeSettings(this.persistence.getSetting('settings', this.initialSettings));
     this.applyProductionDefaultsOnce();
     this.applyQueuePolicyV2Once();
+    this.applyQuestionRecognitionPolicyV3Once();
+    this.persistence.alignPendingQualificationExpiry(this.settings.queue.expireMinutes);
     this.seedDevelopmentDigitalHumanProfiles();
     this.seedDefaultPresentationProfile();
     this.digitalHumanPresets = this.persistence.getSetting<DigitalHumanPreset[]>('digital-human-presets', []);
@@ -1500,6 +1509,41 @@ export class LiveRuntime {
       maxVisible: 4, maxTotal: 100, likeThreshold: 100,
       giftId: '5655', giftName: 'Rose', giftRepeatCount: 4,
       speechTargetSeconds: 30,
+    });
+  }
+
+  /** Expand the old 18-item recognition list and align every entitlement TTL. */
+  private applyQuestionRecognitionPolicyV3Once(): void {
+    if (this.persistence.getSetting<boolean>('production-policy-v3', false)) return;
+    const currentRule = this.settings.engagement.commentRules[0];
+    const waitingMinutes = this.settings.queue.expireMinutes;
+    this.settings = normalizeSettings({
+      ...this.settings,
+      gifts: { ...this.settings.gifts, entitlementExpireMinutes: waitingMinutes },
+      engagement: {
+        ...this.settings.engagement,
+        likeRules: this.settings.engagement.likeRules.map((rule) => ({ ...rule, grantExpireMinutes: waitingMinutes })),
+        commentRules: [{
+          ...(currentRule ?? defaultSettings.engagement.commentRules[0]),
+          id: currentRule?.id ?? 'comment-reading',
+          label: '多语言问题识别',
+          enabled: true,
+          keywords: defaultCommentKeywords,
+          matchMode: 'CONTAINS',
+          // The list also contains semantic terms such as "plan" and "work".
+          // Removing the matched term corrupts the viewer's actual question.
+          stripKeyword: false,
+          queueExpireMinutes: waitingMinutes,
+          speechTargetSeconds: this.settings.reading.speechTargetSeconds,
+        }],
+      },
+    });
+    this.persistence.setSetting('settings', this.settings);
+    this.persistence.setSetting('production-policy-v3', true);
+    this.persistence.recordEvent('QUESTION_RECOGNITION_POLICY_V3_APPLIED', {
+      keywordCount: defaultCommentKeywords.length,
+      languages: ['zh-CN', 'en', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru'],
+      entitlementExpireMinutes: waitingMinutes,
     });
   }
 
@@ -1864,6 +1908,12 @@ export class LiveRuntime {
         profiles: patch.presentation?.profiles ?? this.settings.presentation.profiles,
       },
     });
+    if (patch.queue?.expireMinutes !== undefined) {
+      const entitlementExpireMinutes = next.queue.expireMinutes;
+      next.gifts.entitlementExpireMinutes = entitlementExpireMinutes;
+      next.engagement.likeRules = next.engagement.likeRules.map((rule) => ({ ...rule, grantExpireMinutes: entitlementExpireMinutes }));
+      next.engagement.commentRules = next.engagement.commentRules.map((rule) => ({ ...rule, queueExpireMinutes: entitlementExpireMinutes }));
+    }
     const nextLlmOrigin = providerOrigin(next.providers.llm.baseUrl);
     const nextTtsOrigin = providerOrigin(next.providers.tts.baseUrl);
     if (next.meihua.engine !== this.settings.meihua.engine) {
@@ -1881,6 +1931,9 @@ export class LiveRuntime {
       this.persistence.recordEvent('PROVIDER_SECRET_CLEARED_FOR_ORIGIN_CHANGE', { provider: 'tts', previousOrigin: previousTtsOrigin, nextOrigin: nextTtsOrigin || 'INVALID' });
     }
     this.settings = next;
+    if (patch.queue?.expireMinutes !== undefined) {
+      this.persistence.alignPendingQualificationExpiry(this.settings.queue.expireMinutes);
+    }
     this.persistence.setSetting('settings', this.settings);
     this.tikfinity.configure(this.settings.providers.liveInput.url);
     if (this.settings.providers.liveInput.adapter === 'tikfinity') this.startTikfinityInput();

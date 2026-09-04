@@ -888,6 +888,26 @@ export class SqlitePersistence {
     `).run(now).changes);
   }
 
+  /**
+   * Apply a shortened operator timeout to grants that were created under an
+   * older policy. Extending the setting never lengthens an already-issued
+   * entitlement; shortening it takes effect immediately and consistently.
+   */
+  alignPendingQualificationExpiry(expireMinutes: number, now = Date.now()): number {
+    const durationMs = Math.max(1, Math.round(expireMinutes)) * 60_000;
+    this.db.prepare(`
+      UPDATE gift_entitlements
+      SET expires_at = MIN(expires_at, created_at + ?)
+      WHERE status = 'PENDING'
+    `).run(durationMs);
+    this.db.prepare(`
+      UPDATE qualification_grants
+      SET expires_at = MIN(expires_at, created_at + ?)
+      WHERE status = 'PENDING'
+    `).run(durationMs);
+    return this.expireGiftEntitlements(now) + this.expireQualificationGrants(now);
+  }
+
   listQualificationGrants(limit = 100, status?: QualificationGrant['status']): QualificationGrant[] {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
     const rows = status

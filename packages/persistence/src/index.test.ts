@@ -122,4 +122,23 @@ describe('SqlitePersistence', () => {
     expect(persistence.listQualificationGrants()).toEqual([expect.objectContaining({ id: 'grant-1', status: 'APPLIED', readingId: 'reading-1', appliedAt: 300 })]);
     persistence.close();
   });
+
+  it('applies a shortened qualification timeout to existing pending records', () => {
+    const persistence = new SqlitePersistence(':memory:');
+    persistence.saveGiftEntitlement({
+      id: 'old-gift', sourceEventId: 'old-gift-event', userKey: 'gift-viewer', username: 'GiftViewer',
+      ruleId: 'rose', giftId: '5655', giftName: 'Rose', repeatCount: 4, priority: 'HIGH',
+      speechTargetSeconds: 30, receivedAt: 0, status: 'PENDING', createdAt: 0, expiresAt: 30 * 60_000,
+    });
+    persistence.saveQualificationGrant({
+      id: 'old-like', sourceEventId: 'old-like-event', userKey: 'like-viewer', username: 'LikeViewer',
+      kind: 'LIKE', ruleId: 'likes-100', label: '100 likes', priority: 'NORMAL', speechTargetSeconds: 30,
+      status: 'PENDING', createdAt: 0, expiresAt: 30 * 60_000,
+    });
+
+    expect(persistence.alignPendingQualificationExpiry(20, 21 * 60_000)).toBe(2);
+    expect(persistence.listGiftEntitlements()[0]).toMatchObject({ status: 'EXPIRED', expiresAt: 20 * 60_000 });
+    expect(persistence.listQualificationGrants()[0]).toMatchObject({ status: 'EXPIRED', expiresAt: 20 * 60_000 });
+    persistence.close();
+  });
 });

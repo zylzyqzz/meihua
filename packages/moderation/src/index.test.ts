@@ -20,6 +20,18 @@ describe('rule moderation', () => {
     expect(moderateQuestion('Should I change jobs this year', config)).toMatchObject({ decision: 'ALLOW', category: 'CAREER' });
   });
 
+  it.each([
+    ['¿Cuándo mejorará mi trabajo?', 'CAREER'],
+    ['Comment puis-je améliorer ma relation ?', 'RELATIONSHIP'],
+    ['Sollte ich dieses Jahr die Arbeit wechseln', 'CAREER'],
+    ['転職したほうがいいですか', 'CAREER'],
+    ['언제 직업을 바꾸는 게 좋을까요', 'CAREER'],
+    ['Quando meu dinheiro vai melhorar?', 'FINANCE_GENERAL'],
+    ['Когда улучшатся мои отношения?', 'RELATIONSHIP'],
+  ])('recognizes a supported-language question: %s', (question, category) => {
+    expect(moderateQuestion(question, config)).toMatchObject({ decision: 'ALLOW', category });
+  });
+
   it('guards future LLM classifier JSON', () => {
     expect(() => assertValidModerationResult({ decision: 'ALLOW', category: 'CAREER', confidence: 0.9, reason: 'ok', normalizedQuestion: '问题？' })).not.toThrow();
     expect(() => assertValidModerationResult({ decision: 'MAYBE' })).toThrow(InvalidModerationResultError);

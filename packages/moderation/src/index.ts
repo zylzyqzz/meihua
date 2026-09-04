@@ -38,10 +38,10 @@ const advertisingPattern = /(https?:\/\/|www\.|vx[:：]|微信[号號]|加我|�
 const emojiOnlyPattern = /^[\p{Extended_Pictographic}\s]+$/u;
 
 function categoryFor(question: string): ModerationResult['category'] {
-  if (/工作|职业|職業|事业|事業|跳槽|换工作|換工作|\bjob|career|work|business\b/iu.test(question)) return 'CAREER';
-  if (/感情|恋爱|戀愛|对象|對象|婚姻|复合|復合|\blove|relationship|marriage|partner|reconcile\b/iu.test(question)) return 'RELATIONSHIP';
-  if (/考试|考試|学业|學業|学校|學校|\bexam|study|school|university|course\b/iu.test(question)) return 'STUDY';
-  if (/钱|錢|收入|理财|理財|投资|投資|\bmoney|income|finance|investment|salary\b/iu.test(question)) return 'FINANCE_GENERAL';
+  if (/工作|职业|職業|事业|事業|跳槽|换工作|換工作|仕事|転職|직업|이직|job|career|work|business|trabajo|travail|arbeit|trabalho|работа/iu.test(question)) return 'CAREER';
+  if (/感情|恋爱|戀愛|对象|對象|婚姻|复合|復合|恋愛|結婚|연애|결혼|love|relationship|marriage|partner|reconcile|amor|relation|beziehung|relacionamento|любовь|отношения/iu.test(question)) return 'RELATIONSHIP';
+  if (/考试|考試|学业|學業|学校|學校|試験|勉強|시험|공부|exam|study|school|university|course|examen|étude|prüfung|estudo|экзамен|учёба/iu.test(question)) return 'STUDY';
+  if (/钱|錢|收入|理财|理財|投资|投資|お金|収入|돈|수입|money|income|finance|investment|salary|dinero|argent|geld|dinheiro|деньги|доход/iu.test(question)) return 'FINANCE_GENERAL';
   return 'LIFE';
 }
 
@@ -64,8 +64,9 @@ export function moderateQuestion(rawQuestion: string, config: ModerationConfig):
   if (effectiveLength > config.maxChars) {
     return { decision: 'UNCLEAR', category: 'OTHER', confidence: 0.85, reason: 'too_long', normalizedQuestion };
   }
-  const startsLikeQuestion = /^(?:should|can|could|will|would|is|are|am|do|does|did|may|might|what|when|where|why|how|who|which|deber[ií]a|puedo|puede|qu[eé]|c[oó]mo|cu[aá]ndo|por\s+qu[eé]|dois-je|puis-je|est-ce|quel(?:le)?|comment|quand|pourquoi|sollte|kann|wird|ist|sind|wie|wann|warum|was)\b/iu.test(normalizedQuestion);
-  if (!startsLikeQuestion && !/[？?吗嗎]|是否|能不能|可不可以|适不适合|適不適合|如何|怎么|怎麼|会不会|會不會/.test(normalizedQuestion)) {
+  const startsLikeQuestion = /^(?:should|can|could|will|would|is|are|am|do|does|did|may|might|what|when|where|why|how|who|which|deber[ií]a|puedo|puede|podr[eé]|qu[eé]|c[oó]mo|cu[aá]ndo|por\s+qu[eé]|dois-je|puis-je|est-ce|quel(?:le)?|comment|quand|pourquoi|sollte|kann|werde|wird|ist|sind|wie|wann|warum|was|devo|posso|ser[aá]|quando|como|стоит\s+ли|смогу\s+ли|будет\s+ли|когда|как|почему)\b/iu.test(normalizedQuestion);
+  const hasCjkQuestionShape = /[？?吗嗎]|是否|能不能|可不可以|适不适合|適不適合|如何|怎么办|怎麼辦|怎么|怎麼|会不会|會不會|什么时候|何时|でしょうか|ですか|ますか|どうすれば|できますか|할까요|인가요|나요|까요|어떻게|언제/u.test(normalizedQuestion);
+  if (!startsLikeQuestion && !hasCjkQuestionShape) {
   // V7.2 运营口径：任何评论都视为一次提问——非疑问句也放行（仅保留广告/风险/长度过滤）。
   if (config.treatAnyCommentAsQuestion === true) {
     return { decision: 'ALLOW', category: categoryFor(normalizedQuestion), confidence: 0.92, reason: 'any_comment_as_question', normalizedQuestion };
