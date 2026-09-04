@@ -155,6 +155,10 @@ function captureDescription(sample: LiveCaptureItem) {
   return `本次点赞 +${sample.likeCount ?? 0}`;
 }
 
+function arrayOrEmpty<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
 function Pill({ status }: { status: string }) { return <span className={`pill pill-${status.toLocaleLowerCase()}`}>{status}</span>; }
 
 function SourceIcon({ sourceId }: { sourceId: ObsSourceId }) {
@@ -518,7 +522,17 @@ export function App() {
     const nextDraft = draftRes.ok ? draftRes.value : undefined;
     const hasAvatarAsset = nextDraft ? Object.values(nextDraft.profile.avatar.slots).some((slot) => slot.assetId) : false;
     if (nextHealth) setHealth(nextSettings && nextSettings.providers.avatar.adapter === 'none' && !hasAvatarAsset ? { ...nextHealth, avatar: 'NOT_CONFIGURED' } : nextHealth);
-    if (queueRes.ok) setQueue(queueRes.value); if (overviewRes.ok) setQueueOverview(overviewRes.value); if (directorRes.ok) setDirector(directorRes.value); if (preflightRes.ok) setPreflight(preflightRes.value); if (assetsRes.ok) setAssets(assetsRes.value); if (readingsRes.ok) setReadings(readingsRes.value); if (eventsRes.ok) setEvents(eventsRes.value); if (captureRes.ok) setCaptureHistory(captureRes.value); if (pendingRes.ok) setPendingQualifications(pendingRes.value); if (giftsRes.ok) setCapturedGifts(giftsRes.value); if (secretsRes.ok) setSecretStatus(secretsRes.value);
+    if (queueRes.ok) setQueue(arrayOrEmpty<QueueRow>(queueRes.value));
+    if (overviewRes.ok) setQueueOverview(arrayOrEmpty<QueueOverviewEntry>(overviewRes.value));
+    if (directorRes.ok) setDirector(directorRes.value);
+    if (preflightRes.ok) setPreflight(preflightRes.value);
+    if (assetsRes.ok) setAssets(arrayOrEmpty<MediaAsset>(assetsRes.value));
+    if (readingsRes.ok) setReadings(arrayOrEmpty<Reading>(readingsRes.value));
+    if (eventsRes.ok) setEvents(arrayOrEmpty<AppEvent>(eventsRes.value));
+    if (captureRes.ok) setCaptureHistory(arrayOrEmpty<LiveCaptureItem>(captureRes.value));
+    if (pendingRes.ok) setPendingQualifications(arrayOrEmpty<PendingQualification>(pendingRes.value));
+    if (giftsRes.ok) setCapturedGifts(arrayOrEmpty<CapturedGift>(giftsRes.value));
+    if (secretsRes.ok) setSecretStatus(secretsRes.value);
     if (nextSettings) setSettings((current) => replaceEditable || !current ? nextSettings : current);
     setDraft((current) => {
       if (!canvasLayoutSynced.current && nextDraft) {
@@ -554,7 +568,7 @@ export function App() {
       ]);
       // Replace the visible snapshot. Never append polling results, otherwise
       // the same TikFinity event appears repeatedly in the console.
-      setCaptureHistory(nextCaptureHistory);
+      setCaptureHistory(arrayOrEmpty<LiveCaptureItem>(nextCaptureHistory));
       setHealth(nextHealth);
       notify('实时互动数据已刷新');
     } catch (error) {
@@ -570,9 +584,9 @@ export function App() {
         request<QueueOverviewEntry[]>('/api/queue/overview'),
         request<PendingQualification[]>('/api/qualifications/pending'),
       ]);
-      setQueue(nextQueue);
-      setQueueOverview(nextQueueOverview);
-      setPendingQualifications(nextPendingQualifications);
+      setQueue(arrayOrEmpty<QueueRow>(nextQueue));
+      setQueueOverview(arrayOrEmpty<QueueOverviewEntry>(nextQueueOverview));
+      setPendingQualifications(arrayOrEmpty<PendingQualification>(nextPendingQualifications));
       notify('排队数据已刷新');
     } catch (error) {
       notify(error instanceof Error ? error.message : '排队数据刷新失败');
@@ -595,9 +609,9 @@ export function App() {
         request<QueueOverviewEntry[]>('/api/queue/overview'),
         request<PendingQualification[]>('/api/qualifications/pending'),
       ]);
-      setQueue(nextQueue);
-      setQueueOverview(nextQueueOverview);
-      setPendingQualifications(nextPendingQualifications);
+      setQueue(arrayOrEmpty<QueueRow>(nextQueue));
+      setQueueOverview(arrayOrEmpty<QueueOverviewEntry>(nextQueueOverview));
+      setPendingQualifications(arrayOrEmpty<PendingQualification>(nextPendingQualifications));
       notify(`已清空 ${result.cleared} 个正式排队任务；待提问权益未受影响`);
     } catch (error) {
       notify(error instanceof Error ? error.message : '重置队列失败');
@@ -618,7 +632,7 @@ export function App() {
     // newly captured comment look as if TikFinity had stopped working.
     const captureTimer = window.setInterval(() => {
       void request<LiveCaptureItem[]>('/api/live-events/recent?limit=50')
-        .then(setCaptureHistory)
+        .then((items) => setCaptureHistory(arrayOrEmpty<LiveCaptureItem>(items)))
         .catch(() => undefined);
     }, 2_000);
     return () => { window.clearInterval(timer); window.clearInterval(slowTimer); window.clearInterval(captureTimer); };
@@ -697,8 +711,8 @@ export function App() {
           request('/api/queue/overview'),
           request('/api/qualifications/pending'),
         ]).then(([nextOverview, nextPending]) => {
-          setQueueOverview(nextOverview as QueueOverviewEntry[]);
-          setPendingQualifications(nextPending as PendingQualification[]);
+          setQueueOverview(arrayOrEmpty<QueueOverviewEntry>(nextOverview));
+          setPendingQualifications(arrayOrEmpty<PendingQualification>(nextPending));
         }).catch(() => undefined);
       }, 60);
     };
@@ -706,7 +720,7 @@ export function App() {
       if (captureRefreshTimer) clearTimeout(captureRefreshTimer);
       captureRefreshTimer = setTimeout(() => {
         void request<LiveCaptureItem[]>('/api/live-events/recent?limit=50')
-          .then(setCaptureHistory)
+          .then((items) => setCaptureHistory(arrayOrEmpty<LiveCaptureItem>(items)))
           .catch(() => undefined);
       }, 80);
     };

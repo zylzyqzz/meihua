@@ -306,124 +306,27 @@
   color: #9ae6a8;
 }
 
-/* Hexagram reveal panel: @username + question + primary/mutual/changed + moving line. */
-
-.stage-hexagram {
+/* Viewer, question and hexagram name are already shown above. The lower
+   compass layer contains one calm gold primary cast and no duplicate copy. */
+.hexagrams-primary-only {
+  width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.stage-hexagram-body {
-  flex: 1;
-  min-height: 0;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-  padding: 12px 22px 6px;
+  place-items: center;
+  pointer-events: none;
   animation: stage-reveal .6s cubic-bezier(.2, .8, .3, 1);
 }
 
-.stage-hex-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  min-width: 0;
-}
-
-.stage-hex-card .hex-lines {
-  width: min(150px, 11vw);
-  margin-top: 2px;
-  gap: 8px;
-}
-
-.stage-hex-card strong {
-  margin-top: 12px;
-  color: var(--text);
-  font-size: clamp(13px, 1.7vw, 17px);
-  text-align: center;
-  overflow-wrap: anywhere;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.stage-hex-card span {
-  margin-top: 5px;
-  color: var(--accent);
-  font-size: clamp(10px, 1.3vw, 13px);
-  letter-spacing: .16em;
-}
-
-.stage-hex-empty {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  opacity: .7;
-}
-
-.stage-hex-empty i {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  border: 2px dashed color-mix(in srgb, var(--accent) 45%, transparent);
-  animation: stage-rotate 26s linear infinite;
-}
-
-.stage-hex-empty p {
+.hexagrams-primary-only .hex-lines {
+  width: min(250px, 68%);
   margin: 0;
-  font-size: clamp(15px, 2vw, 20px);
-  color: var(--text);
+  gap: 12px;
 }
 
-.stage-hexagram footer {
-  padding: 10px 22px 16px;
-}
-
-.stage-hex-meta {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  border-top: 1px solid rgba(255, 255, 255, .1);
-  padding-top: 12px;
-}
-
-.stage-hex-meta span {
-  color: var(--accent);
-  font-weight: 800;
-  font-size: clamp(14px, 1.8vw, 18px);
-  white-space: nowrap;
-}
-
-.stage-hex-meta strong {
-  color: var(--text);
-  font-size: clamp(15px, 2vw, 21px);
-  font-weight: 700;
-  text-align: center;
-  line-height: 1.35;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stage-hex-meta em {
-  color: var(--text);
-  opacity: .66;
-  font-size: clamp(11px, 1.4vw, 14px);
-  font-style: normal;
-  white-space: nowrap;
-}
-
-.stage-hex-meta.is-idle {
-  display: block;
-  text-align: center;
-  opacity: .75;
+.hexagrams-primary-only .hex-line i,
+.hexagrams-primary-only .hex-line.moving i {
+  background: var(--accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
 /* Gift feedback banner — shown only while the GIFT side cue is active. */

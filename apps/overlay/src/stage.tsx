@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { BroadcastSnapshotV2, ContentLanguage, ObsSourceConfig, ObsSourceId, SceneComposition, SceneLayer } from '@meihua/core-types';
-import { formatHexagramDisplayName } from '@meihua/answer-composer';
 import { Hexagram, MaterialLux3DSource, SourceContent, SynchronizedVideo, authenticatedUrl, mediaAssetUrl, labelFor, qualificationLabel, sourceCopy, sourceStyle } from './App.js';
 import { resolveBackgroundMode } from '@meihua/core-types';
 import { VrmAvatar } from './VrmAvatar.js';
@@ -76,8 +75,6 @@ const stageCopy: Record<ContentLanguage, StageCopy> = {
   },
 };
 
-const hexagramOrder = ['primary', 'mutual', 'changed'] as const;
-
 function StageBackground({ snapshot, config }: { snapshot: BroadcastSnapshotV2; config: ObsSourceConfig }) {
   const assetId = config.backgroundAssetId;
   const asset = assetId ? snapshot.mediaAssets?.find((item) => item.id === assetId) : undefined;
@@ -145,29 +142,13 @@ function StageQueue({ snapshot, config, copy }: { snapshot: BroadcastSnapshotV2;
   </section>;
 }
 
-function StageHexagramPanel({ snapshot, config, copy }: { snapshot: BroadcastSnapshotV2; config: ObsSourceConfig; copy: StageCopy }) {
-  const profile = snapshot.profileVersion.profile;
-  const current = snapshot.reading;
-  const meihua = current?.meihua;
-  const copyL = sourceCopy.en;
+function StageHexagramPanel({ snapshot }: { snapshot: BroadcastSnapshotV2 }) {
+  const meihua = snapshot.reading?.meihua;
+  if (!meihua) return null;
   // Keyed by the active cue so a fresh cast re-runs the once-only reveal animation.
   const revealKey = [snapshot.activeCue?.cueId, snapshot.activeCue?.revision, meihua?.primary?.number, snapshot.activeCue?.stage].join(':');
-  return <section className="stage-panel stage-hexagram">
-    <header><b>{copy.hexTitle}</b><span>{meihua ? labelFor(snapshot.stage, profile.contentLanguage) : copy.hexEmpty}</span></header>
-    <div className="stage-hexagram-body" key={revealKey}>
-      {meihua ? hexagramOrder.map((key) => {
-        const value = meihua[key];
-        if (!value) return null;
-        return <div key={key} className="stage-hex-card">
-          <Hexagram lines={value.lines} />
-          <strong>{formatHexagramDisplayName(value.number, value.name, 'en')}</strong>
-          <span>{copyL[key]}</span>
-        </div>;
-      }) : <div className="stage-hex-empty"><i /><p>{config.idleText || copy.hexEmpty}</p></div>}
-    </div>
-    <footer>
-      {current ? <div className="stage-hex-meta"><span>@{current.username}</span><strong>{current.normalizedQuestion ?? current.rawQuestion}</strong>{meihua?.movingLines?.length ? <em>{copyL.moving}: {meihua.movingLines.join(', ')}</em> : <em>{copy.idleHint}</em>}</div> : <div className="stage-hex-meta is-idle"><strong>{copy.idleHint}</strong></div>}
-    </footer>
+  return <section className="hexagrams-primary-only" aria-label="Primary hexagram" key={revealKey}>
+    <Hexagram lines={meihua.primary.lines} />
   </section>;
 }
 
@@ -235,7 +216,7 @@ export function StageSource({ snapshot }: { snapshot: BroadcastSnapshotV2 }) {
         <header className="stage-status"><div className="stage-brand"><i className={live ? 'is-live' : ''} /><b>{copy.brand}</b><span>{stageText}</span></div><div className="stage-now">{snapshot.reading ? <><b>@{snapshot.reading.username}</b><span>{currentQuestion}</span></> : <span>{copy.idleHint}</span>}</div></header>
         <div className="stage-person-zone"><StagePersonArea snapshot={snapshot} /></div>
         <div className="stage-queue-zone"><StageQueue snapshot={snapshot} config={config} copy={copy} /></div>
-        <div className="stage-hex-zone"><StageHexagramPanel snapshot={snapshot} config={config} copy={copy} /></div>
+        <div className="stage-hex-zone"><StageHexagramPanel snapshot={snapshot} /></div>
         <div className="stage-gift-zone"><StageGiftBanner snapshot={snapshot} copy={copy} /></div>
         <footer className="stage-disclaimer">{profile.disclaimer}</footer>
       </>}

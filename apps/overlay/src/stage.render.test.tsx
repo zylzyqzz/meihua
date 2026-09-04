@@ -116,14 +116,14 @@ describe('integrated stage server render', () => {
       if (options.reading !== false) {
         expect(text).toContain('@SmokeViewer');
         expect(text).toContain('Should I move to the city next year?');
-        expect(text).toContain('PRIMARY');
-        expect(text).toContain('MUTUAL');
-        expect(text).toContain('CHANGED');
-        expect(text).toContain('Moving line');
-        // The three cast hexagrams are all rendered.
-        expect(text).toContain('Hexagram 3');
-        expect(text).toContain('Hexagram 22');
-        expect(text).toContain('Hexagram 48');
+        // Viewer, question and hexagram name are rendered once above. The
+        // lower compass area contains only one uncluttered primary cast.
+        expect((text.match(/class="hex-lines"/g) ?? [])).toHaveLength(1);
+        expect(text).not.toContain('MUTUAL');
+        expect(text).not.toContain('CHANGED');
+        expect(text).not.toContain('Moving line');
+        expect(text).not.toContain('Hexagram 22');
+        expect(text).not.toContain('Hexagram 48');
         // The spoken script remains in the admin monitor/audio bus. It is
         // intentionally not burned into the OBS stage, which prevents tiny
         // duplicate text from competing with the visual reading.

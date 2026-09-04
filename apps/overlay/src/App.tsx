@@ -1248,52 +1248,11 @@ export function SourceContent({
       </section>
     );
   else if (sourceId === "hexagram") {
-    const copy = sourceCopy.en;
-    content = (
-      <section className="panel hexagrams">
-        {title}
-        <div className="hexagram-grid">
-          {(["primary", "mutual", "changed"] as const).map((key) => {
-            const value = current?.meihua?.[key];
-            const focus =
-              segment?.hexagramFocus
-                ?.toLocaleLowerCase()
-                .replace("_lines", "") === key;
-            return (
-              <div key={key} className={focus ? "is-focused" : ""}>
-                <span>{copy[key]}</span>
-                <Hexagram lines={value?.lines} />
-                <strong>
-                  {value
-                    ? formatHexagramDisplayName(
-                        value.number,
-                        value.name,
-                        "en",
-                      )
-                    : config.idleText}
-                </strong>
-              </div>
-            );
-          })}
-        </div>
-        <footer className="hexagram-reading-meta">
-          <div>
-            <span>@{current?.username ?? "NextViewer"}</span>
-            <small>{copy.question}</small>
-          </div>
-          <strong>
-            {current?.normalizedQuestion ??
-              current?.rawQuestion ??
-              config.idleText}
-          </strong>
-          {current?.meihua?.movingLines?.length ? (
-            <em>
-              {copy.moving}: {current.meihua.movingLines.join(", ")}
-            </em>
-          ) : null}
-        </footer>
+    content = current?.meihua?.primary ? (
+      <section className="hexagrams-primary-only" aria-label="Primary hexagram">
+        <Hexagram lines={current.meihua.primary.lines} />
       </section>
-    );
+    ) : null;
   } else if (sourceId === "subtitles") {
     content = segment ? (
       <section className={`panel subtitles ${segment.emphasis ? "emphasis" : ""}`} aria-live="polite">
