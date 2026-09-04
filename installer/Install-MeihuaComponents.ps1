@@ -27,11 +27,11 @@ $logPath = Join-Path $logRoot ('install-{0}.log' -f (Get-Date -Format 'yyyyMMdd-
 function Write-InstallerLog([string]$Message, [ValidateSet('INFO','OK','WARN','FAIL')] [string]$Level = 'INFO') {
   $line = '{0:o} [{1}] {2}' -f [DateTimeOffset]::Now, $Level, $Message
   Add-Content -LiteralPath $logPath -Value $line -Encoding UTF8
-  Write-Output ("[{0}] {1}" -f $Level, $Message)
+  [Console]::Out.WriteLine(("[{0}] {1}" -f $Level, $Message))
 }
 
 function Write-ProgressEvent([int]$Percent, [string]$Message) {
-  Write-Output ("@@PROGRESS {0} {1}" -f ([Math]::Max(0, [Math]::Min(100, $Percent))), $Message)
+  [Console]::Out.WriteLine(("@@PROGRESS {0} {1}" -f ([Math]::Max(0, [Math]::Min(100, $Percent))), $Message))
   Write-InstallerLog $Message
 }
 
@@ -51,14 +51,20 @@ function Invoke-Checked([string]$FilePath, [string[]]$ArgumentList, [string]$Wor
   $display = "$FilePath $($ArgumentList -join ' ')"
   Write-InstallerLog "运行：$display"
   if ($WorkingDirectory) { Push-Location $WorkingDirectory }
+  $previousErrorActionPreference = $ErrorActionPreference
   try {
+    # Git、winget、curl 等命令会把正常进度写入 stderr。Windows PowerShell 5
+    # 在 Stop 模式下会把第一行 stderr 包装成 NativeCommandError，导致成功命令被误判。
+    $ErrorActionPreference = 'Continue'
     & $FilePath @ArgumentList 2>&1 | ForEach-Object {
       $text = [string]$_
       Add-Content -LiteralPath $logPath -Value $text -Encoding UTF8
-      Write-Output $text
+      [Console]::Out.WriteLine($text)
     }
-    if ($LASTEXITCODE -ne 0) { throw "命令执行失败（$LASTEXITCODE）：$display" }
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) { throw "命令执行失败（$exitCode）：$display" }
   } finally {
+    $ErrorActionPreference = $previousErrorActionPreference
     if ($WorkingDirectory) { Pop-Location }
   }
 }
@@ -134,10 +140,25 @@ function Save-Download([string]$Uri, [string]$Destination, [string]$Sha256 = '')
 }
 
 function Test-ObsInstalled {
-  return [bool](@(
+  $knownPaths = @(
     "$env:ProgramFiles\obs-studio\bin\64bit\obs64.exe",
-    "${env:ProgramFiles(x86)}\obs-studio\bin\64bit\obs64.exe"
-  ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1)
+    "${env:ProgramFiles(x86)}\obs-studio\bin\64bit\obs64.exe",
+    "$env:LOCALAPPDATA\Programs\obs-studio\bin\64bit\obs64.exe",
+    'D:\ruanjian\obs-studio\bin\64bit\obs64.exe'
+  )
+  if ($knownPaths | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1) { return $true }
+  if (Get-Process -Name 'obs64' -ErrorAction SilentlyContinue | Select-Object -First 1) { return $true }
+  foreach ($registryRoot in @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+  )) {
+    $obsEntry = Get-ChildItem -LiteralPath $registryRoot -ErrorAction SilentlyContinue |
+      ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue } |
+      Where-Object { $_.DisplayName -match '^OBS Studio' } | Select-Object -First 1
+    if ($obsEntry) { return $true }
+  }
+  return $false
 }
 
 function Test-VbCableInstalled {
@@ -153,6 +174,16 @@ function Get-EnvironmentReport {
   $driveName = [IO.Path]::GetPathRoot($InstallRoot).TrimEnd('\').TrimEnd(':')
   $drive = Get-PSDrive -Name $driveName -ErrorAction SilentlyContinue
   $gpu = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'NVIDIA' } | Select-Object -First 1
+  $installedProjectRoot = if (Test-Path -LiteralPath (Join-Path $repositoryRoot 'package.json')) {
+    $repositoryRoot
+  } elseif (Test-Path -LiteralPath (Join-Path $InstallRoot 'meihua-live\package.json')) {
+    Join-Path $InstallRoot 'meihua-live'
+  } else { '' }
+  $gptRoot = if ($installedProjectRoot) { Join-Path $installedProjectRoot 'external\gptsovits-v3' } else { '' }
+  $museTalkRoot = if ($installedProjectRoot) { Join-Path $installedProjectRoot 'external\musetalk' } else { '' }
+  $openVoiceRoot = if ($installedProjectRoot) { Join-Path $installedProjectRoot 'external\openvoice' } else { '' }
+  $kokoroRoot = if ($installedProjectRoot) { Join-Path $installedProjectRoot 'services\kokoro-tts' } else { '' }
+  $bundledFfmpeg = [bool]($installedProjectRoot -and @(Get-ChildItem -Path (Join-Path $installedProjectRoot 'node_modules\.pnpm\ffmpeg-static@*\node_modules\ffmpeg-static\ffmpeg.exe') -File -ErrorAction SilentlyContinue).Count)
   $report = [ordered]@{
     generatedAt = [DateTimeOffset]::Now.ToString('o')
     installRoot = $InstallRoot
@@ -163,18 +194,88 @@ function Get-EnvironmentReport {
     node = [bool](Get-CommandPath 'node.exe')
     pnpm = [bool](Get-CommandPath 'pnpm.cmd')
     python310 = [bool](Get-Python310)
-    ffmpeg = [bool](Get-CommandPath 'ffmpeg.exe')
+    ffmpeg = [bool]((Get-CommandPath 'ffmpeg.exe') -or $bundledFfmpeg)
     nvidia = [bool]$gpu
     nvidiaName = if ($gpu) { $gpu.Name } else { '' }
     nvidiaSmi = [bool](Get-CommandPath 'nvidia-smi.exe')
+    cudaToolkit = [bool](Get-CommandPath 'nvcc.exe')
     obs = Test-ObsInstalled
     vbCable = Test-VbCableInstalled
     tikfinity = Test-TikfinityInstalled
-    repositoryAvailable = Test-Path -LiteralPath (Join-Path $repositoryRoot 'package.json')
+    projectRoot = $installedProjectRoot
+    repositoryAvailable = [bool]$installedProjectRoot
+    repositoryIsGit = [bool]($installedProjectRoot -and (Test-Path -LiteralPath (Join-Path $installedProjectRoot '.git')))
+    nodeDependencies = [bool]($installedProjectRoot -and (Test-Path -LiteralPath (Join-Path $installedProjectRoot 'node_modules')))
+    productionBuild = [bool]($installedProjectRoot -and
+      (Test-Path -LiteralPath (Join-Path $installedProjectRoot 'apps\admin\dist\index.html')) -and
+      (Test-Path -LiteralPath (Join-Path $installedProjectRoot 'apps\overlay\dist\index.html')) -and
+      (Test-Path -LiteralPath (Join-Path $installedProjectRoot 'apps\orchestrator\dist\app.js')))
+    kokoroRuntime = [bool]($kokoroRoot -and (Test-Path -LiteralPath (Join-Path $kokoroRoot '.venv\Scripts\python.exe')))
+    kokoroModel = [bool]($kokoroRoot -and (Test-Path -LiteralPath (Join-Path $kokoroRoot 'models\kokoro-v1.0.onnx')))
+    kokoroVoices = [bool]($kokoroRoot -and (Test-Path -LiteralPath (Join-Path $kokoroRoot 'models\voices-v1.0.bin')))
+    gptSoVitsRuntime = [bool]($gptRoot -and (Test-Path -LiteralPath (Join-Path $gptRoot 'runtime\Scripts\python.exe')))
+    gptSoVitsModels = [bool]($gptRoot -and (Test-Path -LiteralPath (Join-Path $gptRoot 'GPT_SoVITS\pretrained_models')))
+    whisperModel = [bool]($gptRoot -and (Test-Path -LiteralPath (Join-Path $gptRoot 'tools\asr\models\openai-whisper\tiny.pt')))
+    museTalkRuntime = [bool]($museTalkRoot -and (Test-Path -LiteralPath (Join-Path $museTalkRoot '.venv\Scripts\python.exe')))
+    museTalkModels = [bool]($museTalkRoot -and (Test-Path -LiteralPath (Join-Path $museTalkRoot 'models')))
+    openVoiceRuntime = [bool]($openVoiceRoot -and (Test-Path -LiteralPath (Join-Path $openVoiceRoot '.venv\Scripts\python.exe')))
+    openVoiceModels = [bool]($openVoiceRoot -and (Test-Path -LiteralPath (Join-Path $openVoiceRoot 'checkpoints_v2\converter\config.json')))
   }
   $reportPath = Join-Path $stateRoot 'environment.json'
   $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $reportPath -Encoding UTF8
   return [pscustomobject]$report
+}
+
+function Write-EnvironmentCheck([bool]$Ready, [string]$Label, [string]$ReadyText, [string]$MissingText) {
+  if ($Ready) { Write-InstallerLog ("{0}：{1}" -f $Label, $ReadyText) 'OK' }
+  else { Write-InstallerLog ("{0}：{1}" -f $Label, $MissingText) 'WARN' }
+}
+
+function Write-EnvironmentSummary($Report) {
+  Write-InstallerLog '—— 系统与磁盘 ——'
+  Write-EnvironmentCheck $Report.windows64Bit 'Windows' ("{0}，64 位" -f $Report.windows) '不是 64 位 Windows，无法安装'
+  Write-EnvironmentCheck ($Report.freeDiskGb -ge 3) '磁盘空间' ("可用 {0} GB" -f $Report.freeDiskGb) ("仅剩 {0} GB，至少需要 3 GB" -f $Report.freeDiskGb)
+
+  Write-InstallerLog '—— 开发环境与依赖 ——'
+  Write-EnvironmentCheck $Report.git 'Git' '已安装，可下载源码' '未安装；点击开始安装时自动安装'
+  Write-EnvironmentCheck $Report.node 'Node.js' '已安装' '未安装；主中控需要，点击开始安装时自动安装'
+  Write-EnvironmentCheck $Report.pnpm 'pnpm' '已安装' '未安装；构建主中控时自动配置'
+  Write-EnvironmentCheck $Report.python310 'Python 3.10' '已安装' '未安装；声音克隆和数字人需要，勾选相关组件后自动安装'
+  Write-EnvironmentCheck $Report.ffmpeg 'FFmpeg' '已安装，可处理音视频' '未安装；音视频标准化功能暂不可用'
+
+  Write-InstallerLog '—— 显卡与驱动 ——'
+  Write-EnvironmentCheck $Report.nvidia 'NVIDIA 显卡' $Report.nvidiaName '未检测到；不影响主中控和 Kokoro，实时数字人只能使用 CPU 或云服务'
+  Write-EnvironmentCheck $Report.nvidiaSmi 'NVIDIA 驱动' '驱动命令可用' '未检测到；本地实时数字人不能标记为直播就绪'
+  Write-EnvironmentCheck $Report.cudaToolkit 'CUDA 工具包' '已安装' '未检测到；仅影响本地实时数字人和口音模型'
+
+  Write-InstallerLog '—— 主中控与前端 ——'
+  Write-EnvironmentCheck $Report.repositoryAvailable '梅花源码' ("已存在：{0}" -f $Report.projectRoot) '尚未下载；点击开始安装后从私有仓库下载'
+  Write-EnvironmentCheck $Report.repositoryIsGit '仓库版本管理' 'Git 仓库完整' '尚未建立；首次安装需要 GitHub 私有仓库访问权限'
+  Write-EnvironmentCheck $Report.nodeDependencies 'Node 依赖' '已安装' '尚未安装；开始安装时自动执行'
+  Write-EnvironmentCheck $Report.productionBuild '生产构建' '管理端、中控服务和 OBS 画面均已构建' '尚未完成；开始安装时自动构建'
+
+  Write-InstallerLog '—— 声音、识别与数字人模型 ——'
+  Write-EnvironmentCheck ($Report.kokoroRuntime -and $Report.kokoroModel -and $Report.kokoroVoices) 'Kokoro 英文女声' '运行环境、模型和四个女声包齐全' '未完整安装；勾选 Kokoro 后自动下载并校验'
+  Write-EnvironmentCheck ($Report.gptSoVitsRuntime -and $Report.gptSoVitsModels) 'GPT-SoVITS 声音克隆' '运行环境和预训练模型齐全' '可选组件未完整安装'
+  Write-EnvironmentCheck $Report.whisperModel 'Whisper 语音识别' '离线模型已安装' '可选组件未安装；勾选 Whisper 后自动安装'
+  Write-EnvironmentCheck ($Report.museTalkRuntime -and $Report.museTalkModels) 'MuseTalk 实时数字人' '运行环境和模型目录齐全' '可选组件未完整安装；实时使用还需要 NVIDIA/CUDA'
+  Write-EnvironmentCheck ($Report.openVoiceRuntime -and $Report.openVoiceModels) 'OpenVoice 口音转换' '运行环境和模型齐全' '可选组件未完整安装'
+
+  Write-InstallerLog '—— 直播软件与音频驱动 ——'
+  Write-EnvironmentCheck $Report.obs 'OBS Studio' '已安装' '未安装；默认组件会自动安装'
+  Write-EnvironmentCheck $Report.vbCable 'VB-CABLE 音频驱动' '已安装，可建立统一 Audio Bus' '未安装；安装时会下载，驱动确认需要手动点击'
+  Write-EnvironmentCheck $Report.tikfinity 'TikFinity' '已安装' '未安装；安装时会下载，账号登录需要手动完成'
+  Write-InstallerLog 'DeepSeek / 云模型配置：出于安全原因，安装包不携带 API Key；安装完成后在中控填写，并以“真实调用成功”为准。' 'INFO'
+
+  $defaultReady = $Report.windows64Bit -and ($Report.freeDiskGb -ge 3) -and $Report.git -and $Report.node -and
+    $Report.pnpm -and $Report.repositoryAvailable -and $Report.nodeDependencies -and $Report.productionBuild -and
+    $Report.ffmpeg -and $Report.kokoroRuntime -and $Report.kokoroModel -and $Report.kokoroVoices -and
+    $Report.obs -and $Report.vbCable -and $Report.tikfinity
+  if ($defaultReady) {
+    Write-InstallerLog '结论：默认“英文女声 + 预录视频 + OBS”链路所需环境已齐全。' 'OK'
+  } else {
+    Write-InstallerLog '结论：当前还有缺项。勾选需要的组件并点击“开始安装”，安装器会自动补齐；驱动确认和账号登录会明确提示你手动完成。' 'WARN'
+  }
 }
 
 function Resolve-ProjectRoot {
@@ -183,9 +284,20 @@ function Resolve-ProjectRoot {
   Ensure-WingetPackage 'git.exe' 'Git.Git' 'Git'
   if (-not (Test-Path -LiteralPath (Join-Path $target '.git'))) {
     New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
-    Invoke-Checked (Get-CommandPath 'git.exe') @('clone', '--branch', $manifest.repository.branch, $manifest.repository.url, $target)
+    try {
+      Invoke-Checked (Get-CommandPath 'git.exe') @(
+        '-c', 'http.lowSpeedLimit=1024', '-c', 'http.lowSpeedTime=20',
+        'clone', '--branch', $manifest.repository.branch, $manifest.repository.url, $target
+      )
+    } catch {
+      if (Test-Path -LiteralPath (Join-Path $target 'package.json')) {
+        Write-InstallerLog 'GitHub 连接中断，但源码文件已经完整下载；继续使用本地源码安装。' 'WARN'
+      } else {
+        throw '主中控源码下载失败。请确认网络正常，并已使用有权访问 zylzyqzz/meihua 的 GitHub 账号登录 Git Credential Manager。'
+      }
+    }
   } else {
-    Invoke-Checked (Get-CommandPath 'git.exe') @('-C', $target, 'pull', '--ff-only')
+    Write-InstallerLog '检测到已经下载好的主中控源码，本次直接复用，不重复联网拉取。' 'OK'
   }
   return $target
 }
@@ -202,7 +314,10 @@ function Install-Core([string]$ProjectRoot) {
   }
   $pnpm = Get-CommandPath 'pnpm.cmd'
   if (-not $pnpm) { throw 'pnpm 安装失败。' }
-  Invoke-Checked $pnpm @('install', '--frozen-lockfile') $ProjectRoot
+  Invoke-Checked $pnpm @(
+    'install', '--frozen-lockfile', '--reporter', 'append-only', '--fetch-timeout', '60000',
+    '--registry', 'https://registry.npmjs.org/'
+  ) $ProjectRoot
   Invoke-Checked $pnpm @('build') $ProjectRoot
   Write-InstallerLog '梅花直播中控已构建完成' 'OK'
 }
@@ -326,8 +441,8 @@ try {
   Write-InstallerLog ("Windows：{0}；磁盘可用：{1} GB；NVIDIA：{2}" -f $report.windows, $report.freeDiskGb, $(if ($report.nvidia) { $report.nvidiaName } else { '未检测到' }))
   if (-not $report.windows64Bit) { throw '只支持 64 位 Windows 10/11。' }
   if ($Action -eq 'Check') {
+    Write-EnvironmentSummary $report
     Write-ProgressEvent 100 '环境检查完成'
-    $report | ConvertTo-Json -Depth 6
     exit 0
   }
 
@@ -386,6 +501,6 @@ try {
   exit 0
 } catch {
   Write-InstallerLog $_.Exception.Message 'FAIL'
-  Write-Output '@@FAILED'
+  [Console]::Out.WriteLine('@@FAILED')
   exit 1
 }

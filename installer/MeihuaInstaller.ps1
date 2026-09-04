@@ -126,6 +126,7 @@ $script:autoCheckExitCode = 0
 
 function Add-LogLine([string]$Line) {
   if (-not $Line) { return }
+  $Line = $Line -replace "\x1B\[[0-?]*[ -/]*[@-~]", ''
   if ($Line -match '^@@PROGRESS\s+(\d+)\s+(.*)$') {
     $progress.Value = [int]$Matches[1]
     $statusText.Text = $Matches[2]
