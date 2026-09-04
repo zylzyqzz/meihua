@@ -9,6 +9,7 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectRoot = Split-Path -Parent $scriptRoot
 $serviceRoot = Join-Path $projectRoot 'services\kokoro-tts'
 $pythonCandidates = @(
+  (Join-Path $serviceRoot '.venv\Scripts\python.exe'),
   (Join-Path $projectRoot 'bundle\MeihuaStudio\gptsovits\runtime\python.exe'),
   (Join-Path $projectRoot 'tools\python\python.exe'),
   'E:\shuzirenzhiboruanjian\ChanYinAi_V5-20260813\runtime\python.exe'

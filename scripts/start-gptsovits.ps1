@@ -1,13 +1,20 @@
 ﻿[CmdletBinding()]
 param(
-  [string]$GptSoVitsRoot = 'E:\meihua\V3音色包',
+  [string]$GptSoVitsRoot = '',
   [int]$Port = 9881,
   [string]$Host_ = '127.0.0.1'
 )
 $ErrorActionPreference = 'Stop'
-$python = Join-Path $GptSoVitsRoot 'runtime\python.exe'
+if (-not $GptSoVitsRoot) {
+  $projectRoot = Split-Path -Parent $PSScriptRoot
+  $GptSoVitsRoot = if ($env:GPT_SOVITS_HOME) { $env:GPT_SOVITS_HOME } else { Join-Path $projectRoot 'external\gptsovits-v3' }
+}
+$python = @(
+  (Join-Path $GptSoVitsRoot 'runtime\python.exe'),
+  (Join-Path $GptSoVitsRoot 'runtime\Scripts\python.exe')
+) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 $apiScript = Join-Path $GptSoVitsRoot 'api_v3.py'
-if (-not (Test-Path $python)) { throw "GPT-SoVITS runtime python not found: $python" }
+if (-not $python) { throw "GPT-SoVITS runtime python not found under: $GptSoVitsRoot\runtime" }
 if (-not (Test-Path $apiScript)) { throw "api_v3.py not found: $apiScript" }
 
 # GPT-SoVITS uses ffmpeg-python internally, which launches `ffmpeg` by name.

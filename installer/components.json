@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "repository": {
+    "url": "https://github.com/zylzyqzz/meihua.git",
+    "branch": "main",
+    "private": true
+  },
+  "defaults": {
+    "components": ["core", "kokoro", "obs", "vbcable", "tikfinity"],
+    "installFolder": "MeihuaStudio"
+  },
+  "components": [
+    {
+      "id": "core",
+      "name": "梅花直播中控",
+      "description": "管理端、OBS 画面、队列、梅花起卦、DeepSeek 话术和统一播报主链路。",
+      "required": true,
+      "estimatedGb": 1.2,
+      "source": "private-repository",
+      "license": "Proprietary project source"
+    },
+    {
+      "id": "kokoro",
+      "name": "Kokoro 英文女声",
+      "description": "默认本地英文播报；Heart、Bella、Sarah、Emma，无需 API Key。",
+      "required": false,
+      "estimatedGb": 0.8,
+      "source": "https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0",
+      "license": "MIT client; Apache-2.0 model"
+    },
+    {
+      "id": "gptsovits",
+      "name": "GPT-SoVITS 声音克隆",
+      "description": "可选本地声音克隆；官方 V3 底座叠加梅花兼容 API。需要较大下载和磁盘空间。",
+      "required": false,
+      "estimatedGb": 8.0,
+      "source": "https://github.com/RVC-Boss/GPT-SoVITS",
+      "license": "MIT"
+    },
+    {
+      "id": "asr",
+      "name": "Whisper 样音识别",
+      "description": "声音克隆时自动识别样音语言；随 GPT-SoVITS 运行环境安装。",
+      "required": false,
+      "estimatedGb": 0.2,
+      "dependsOn": ["gptsovits"],
+      "source": "https://github.com/openai/whisper",
+      "license": "MIT"
+    },
+    {
+      "id": "musetalk",
+      "name": "MuseTalk 实时数字人",
+      "description": "可选口型渲染；官方固定提交叠加 Windows、静音输出和显存兼容补丁。建议 NVIDIA CUDA。",
+      "required": false,
+      "estimatedGb": 12.0,
+      "source": "https://github.com/TMElyralab/MuseTalk",
+      "license": "Repository license and model-specific licenses"
+    },
+    {
+      "id": "openvoice",
+      "name": "OpenVoice 目标口音",
+      "description": "可选跨语言音色与口音转换；安装后仍需通过健康检查才可用于直播。",
+      "required": false,
+      "estimatedGb": 4.0,
+      "source": "https://github.com/myshell-ai/OpenVoice",
+      "license": "MIT"
+    },
+    {
+      "id": "obs",
+      "name": "OBS Studio",
+      "description": "正式直播画面输出。已安装时只检测，不重复安装。",
+      "required": false,
+      "estimatedGb": 0.7,
+      "source": "https://obsproject.com/",
+      "license": "GPL-2.0"
+    },
+    {
+      "id": "vbcable",
+      "name": "VB-CABLE 虚拟声卡",
+      "description": "把系统唯一 Audio Bus 接入 OBS；驱动安装需要管理员确认和重启。",
+      "required": false,
+      "estimatedGb": 0.1,
+      "source": "https://vb-audio.com/Cable/",
+      "license": "VB-Audio distribution terms"
+    },
+    {
+      "id": "tikfinity",
+      "name": "TikFinity",
+      "description": "TikTok 直播评论、点赞和礼物事件接入；安装后需登录账号。",
+      "required": false,
+      "estimatedGb": 0.3,
+      "source": "https://tikfinity.zerody.one/",
+      "license": "Vendor terms"
+    }
+  ],
+  "pinnedSources": {
+    "musetalkCommit": "0a89dec45a0192b824e3cf4daf96c239440c5ed8",
+    "gptSoVitsTag": "20250228v3",
+    "kokoroModelUrl": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx",
+    "kokoroModelSha256": "BEB0D1848DEE9A49DA392CC3DF26958D46CFA35D321EDF434F52949153F0DF3A",
+    "kokoroVoicesUrl": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin",
+    "kokoroVoicesSha256": "BCA610B8308E8D99F32E6FE4197E7EC01679264EFED0CAC9140FE9C29F1FBF7D",
+    "whisperTinyUrl": "https://openaipublic.azureedge.net/main/whisper/models/65147644a518d12f04e32d6f3b26facc3f8dd46e5390956a9424a650c0ce22b9/tiny.pt",
+    "whisperTinySha256": "65147644A518D12F04E32D6F3B26FACC3F8DD46E5390956A9424A650C0CE22B9",
+    "openVoiceV2CheckpointsUrl": "https://myshell-public-repo-host.s3.amazonaws.com/openvoice/checkpoints_v2_0417.zip"
+  }
+}

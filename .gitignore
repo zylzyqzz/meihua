@@ -14,5 +14,9 @@ data/secrets/
 services/kokoro-tts/vendor/
 services/kokoro-tts/models/*.onnx
 services/kokoro-tts/models/*.bin
+installer/state/
+installer/logs/
+external/
+downloads/
 **/__pycache__/
 *.pyc

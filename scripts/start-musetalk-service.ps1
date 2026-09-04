@@ -6,7 +6,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $serviceDir = Join-Path $PSScriptRoot '..\services\musetalk-service'
-$museTalkRoot = if ($env:MUSETALK_HOME) { $env:MUSETALK_HOME } else { 'E:\meihua\MuseTalk' }
+$projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$museTalkRoot = if ($env:MUSETALK_HOME) { $env:MUSETALK_HOME } else { Join-Path $projectRoot 'external\musetalk' }
 $required = @(
   'scripts\realtime_inference.py',
   'models\musetalkV15\unet.pth',
@@ -23,12 +24,13 @@ $required = @(
 $missing = @($required | Where-Object { -not (Test-Path -LiteralPath (Join-Path $museTalkRoot $_)) })
 if ($missing.Count) { throw "MuseTalk 底座不完整，缺少：$($missing -join ', ')" }
 if (-not $Python) {
-  $projectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
   $bundledCandidates = @(
+    $env:MUSETALK_PYTHON,
+    (Join-Path $museTalkRoot '.venv\Scripts\python.exe'),
     (Join-Path $projectRoot 'tools\python\python.exe'),
     'E:\meihua\V3音色包\runtime\python.exe'
   )
-  $bundledPython = $bundledCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+  $bundledPython = $bundledCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
   if ($bundledPython) {
     $Python = $bundledPython
   } else {

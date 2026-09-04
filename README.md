@@ -1,5 +1,15 @@
 # 梅花直播中控系统 V2.0
 
+## 新电脑安装（推荐）
+
+```powershell
+git clone https://github.com/zylzyqzz/meihua.git
+cd meihua\installer
+.\MeihuaInstaller.bat
+```
+
+私有仓库需先在 Git Credential Manager 登录有访问权限的 GitHub 账号。安装器会检查 Windows 环境并按勾选项安装中控、Kokoro 女声、OBS、VB-CABLE、TikFinity，以及可选的 GPT-SoVITS、Whisper ASR、MuseTalk 和 OpenVoice。模型和第三方软件从固定官方来源下载，不存入 Git 仓库。
+
 这是一个面向 Windows 直播机的事件驱动直播中控。OBS 只负责最终构图；本系统负责直播场次、TikFinity 事件、资格与队列、梅花易数排盘、统一导演 Cue、可选分句字幕、媒体数字人阶段动作、TTS 音频、本场榜单和所有独立浏览器来源的同步。
 
 后台操作界面固定为中文；TikTok/OBS 输出内容语言可配置为英文、中文及其他已支持语言。
