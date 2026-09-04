@@ -16,14 +16,14 @@ afterEach(() => {
   while (directories.length) rmSync(directories.pop()!, { recursive: true, force: true });
 });
 
-function createDeterministicTts(directory: string): TtsAdapter {
+function createDeterministicTts(directory: string, naturalDurationMs?: number): TtsAdapter {
   mkdirSync(directory, { recursive: true });
   let sequence = 0;
   return {
     id: 'deterministic-test-tts',
     health: () => ({ id: 'deterministic-test-tts', label: 'Deterministic test TTS', status: 'READY', message: 'Test WAV generator ready', configured: true }),
     async synthesize(input) {
-      const durationMs = Math.max(3_000, Math.round((input.targetSeconds ?? 10) * 1_000));
+      const durationMs = naturalDurationMs ?? Math.max(3_000, Math.round((input.targetSeconds ?? 10) * 1_000));
       const sampleRate = 16_000;
       const sampleCount = Math.round(sampleRate * durationMs / 1_000);
       const pcm = Buffer.alloc(sampleCount * 2);
@@ -38,14 +38,14 @@ function createDeterministicTts(directory: string): TtsAdapter {
   };
 }
 
-function createRuntime(options: { realTts?: boolean } = {}) {
+function createRuntime(options: { realTts?: boolean; naturalDurationMs?: number } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'meihua-v2-'));
   directories.push(directory);
   const audioDirectory = join(directory, 'audio');
   const runtime = new LiveRuntime(new SqlitePersistence(':memory:'), {
     audioDirectory,
     mediaDirectory: join(directory, 'media'),
-    ttsAdapter: options.realTts ? undefined : createDeterministicTts(audioDirectory),
+    ttsAdapter: options.realTts ? undefined : createDeterministicTts(audioDirectory, options.naturalDurationMs),
     audioPlayer: {
       async play({ signal, onStarted }) {
         if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
@@ -475,6 +475,58 @@ describe('V2.2 avatar provider adapter layer', () => {
 });
 
 describe('V2.2 Meihua engine selection and duration calibration', () => {
+  it('keeps the original WAV duration instead of forcing speech to the planning target', async () => {
+    const runtime = createRuntime({ naturalDurationMs: 4_200 });
+    runtime.updateSettings({
+      providers: { llm: { adapter: 'rule-based' } },
+      presentation: { mode: 'AUDIO_ONLY' },
+      reading: { speechTargetSeconds: 10, watchdogMs: 30_000 },
+    });
+    expect(runtime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
+    const reading = await runtime.ingest({
+      source: 'mock', eventId: 'natural-wav-duration', username: 'NaturalVoiceViewer',
+      message: 'Should I keep moving forward with this plan?', timestamp: Date.now(), raw: {},
+    });
+    const completed = await waitFor(() => runtime.getReading(reading.id)?.status === 'COMPLETED' ? runtime.getReading(reading.id) : undefined, 20_000);
+    expect(completed.tts?.durationMs).toBe(4_200);
+    expect(completed.speechPlan?.totalDurationMs).toBe(4_200);
+    expect(runtime.getEvents(200).some((event) => event.type === 'TTS_DURATION_CORRECTED' && event.readingId === reading.id)).toBe(false);
+    runtime.abortSession({ reason: 'test' });
+  }, 25_000);
+
+  it('prepares every waiting reading in order while the current reading is active', async () => {
+    const runtime = createRuntime();
+    runtime.updateSettings({
+      providers: { llm: { adapter: 'rule-based' } },
+      presentation: { mode: 'AUDIO_ONLY' },
+      reading: { speechTargetSeconds: 10, watchdogMs: 30_000 },
+    });
+    const now = Date.now();
+    const first = await runtime.ingest({ source: 'mock', eventId: 'precompute-1', userId: 'precompute-1', username: 'FirstViewer', message: 'Should I move ahead with my project?', timestamp: now, raw: {} });
+    const second = await runtime.ingest({ source: 'mock', eventId: 'precompute-2', userId: 'precompute-2', username: 'SecondViewer', message: 'Will this new job be a good fit for me?', timestamp: now + 1, raw: {} });
+    const third = await runtime.ingest({ source: 'mock', eventId: 'precompute-3', userId: 'precompute-3', username: 'ThirdViewer', message: 'Should I make this important decision now?', timestamp: now + 2, raw: {} });
+    expect(runtime.startSession({ mode: 'REHEARSAL' })).toMatchObject({ ok: true });
+
+    const prepared = await waitFor(() => {
+      const readyEvents = runtime.getEvents(500).filter((event) => event.type === 'NEXT_READING_PREPROCESS_READY');
+      const next = runtime.getReading(second.id);
+      const afterNext = runtime.getReading(third.id);
+      return readyEvents.length === 2 && next?.tts?.audioPath && afterNext?.tts?.audioPath
+        ? { readyEvents, next, afterNext }
+        : undefined;
+    }, 15_000).catch((error) => {
+      const state = [first, second, third].map((item) => runtime.getReading(item.id)).map((item) => ({ id: item?.id, status: item?.status, tts: item?.tts?.durationMs, answer: Boolean(item?.answer) }));
+      const events = runtime.getEvents(500).filter((event) => event.type.includes('PREPROCESS') || event.type === 'PIPELINE_ATTEMPT_STARTED').map((event) => ({ type: event.type, readingId: event.readingId, payload: event.payload }));
+      throw new Error(`${error instanceof Error ? error.message : error}; state=${JSON.stringify(state)} events=${JSON.stringify(events)}`);
+    });
+    expect(prepared.next.answer?.speech).toBeTruthy();
+    expect(prepared.afterNext.answer?.speech).toBeTruthy();
+    expect(new Set(prepared.readyEvents.map((event) => event.readingId))).toEqual(new Set([second.id, third.id]));
+    const secondStarted = runtime.getEvents(500).find((event) => event.type === 'PIPELINE_ATTEMPT_STARTED' && event.readingId === second.id);
+    expect(secondStarted).toBeUndefined();
+    runtime.abortSession({ reason: 'test' });
+  }, 20_000);
+
   it('defaults to the canonical mingyu engine and allows rollback to legacy', async () => {
     const runtime = createRuntime();
     expect(runtime.getSettings().meihua.engine).toBe('MINGYU_CORE');

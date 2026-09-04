@@ -39,4 +39,18 @@ describe('persistence operations', () => {
     expect(persistence.getSessionGiftRanking('session-rebuild')).toEqual([expect.objectContaining({ userKey: 'gift-viewer', points: 12 })]);
     persistence.close();
   });
+
+  it('removes legacy duplicate intake audits while preserving business events', () => {
+    const persistence = new SqlitePersistence(':memory:');
+    persistence.recordEvent('TIKFINITY_INBOX_RECEIVED', { eventId: 'chat-1' });
+    persistence.recordEvent('TIKFINITY_INBOX_DUPLICATE', { eventId: 'chat-1' });
+    persistence.recordEvent('LIKE_RECEIVED', { eventId: 'like-1' });
+    persistence.recordEvent('READING_STATE_CHANGED', { status: 'QUEUED' }, 'reading-1');
+
+    const pruned = persistence.pruneOperationalData({ rawEventBefore: 0, auditBefore: 0 });
+
+    expect(pruned.audit).toBe(3);
+    expect(persistence.listEvents()).toEqual([expect.objectContaining({ type: 'READING_STATE_CHANGED' })]);
+    persistence.close();
+  });
 });

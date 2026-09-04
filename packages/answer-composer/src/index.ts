@@ -798,9 +798,10 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
               '2. Do not reason beyond the conclusion, do not chain new deductions, and do not mention what the raw cast "might also mean". Every claim must be traceable to a fact in the conclusion.',
               '3. Delivery: start with the primary hexagram result, moving line, changed hexagram, and the direct judgment. The viewer question is already on screen; do not repeat it.',
               '4. opening and closing MUST be empty strings. Do not add greetings, introductions, filler, disclaimers, calls to action, or “for reflection” language.',
-              '5. Style: natural spoken language, concise and decisive. English should still feel like natural spoken US TikTok delivery; Spanish should feel natural for Latin American audiences. Every claim must remain traceable to the supplied conclusion.',
+              '5. Style: speak like a calm, friendly person talking live to one viewer. Use everyday words, short sentences, and natural contractions. English must be easy for an ordinary US TikTok viewer to understand on the first listen; Spanish should be equally conversational for Latin American audiences.',
+              '5a. Keep the exact hexagram names and moving-line facts, but explain what they mean in plain language immediately. Avoid academic, mystical, literary, or consultant-style wording when a common word says the same thing. Accuracy always comes from the supplied conclusion.',
               '6. The combined opening + speech + closing MUST stay inside the supplied lengthTarget minimum and maximum (words or characters per unit); do not count punctuation.',
-              '7. Set estimatedSeconds exactly to targetSeconds; the audio pipeline will use that value for the final duration.',
+              '7. Set estimatedSeconds exactly to targetSeconds as a planning label. The natural WAV duration will control actual playback.',
               '8. Return only a JSON object with exactly opening, speech, keywords, closing, and estimatedSeconds.',
               '9. Tie the wording and action advice to the viewer\'s exact question while staying inside the conclusion facts. Do not use reusable category boilerplate or stock life-advice sentences.',
               '10. The sentence "one clear decision at a time keeps things steady" and close paraphrases are forbidden.',
@@ -830,9 +831,8 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
     const lengthCheck = validateAnswerLength(answer, language, targetSeconds, input.speechRate);
     if (!lengthCheck.ok) throw new InvalidAnswerContentError(lengthCheck.reason ?? 'LLM_RESPONSE_LENGTH_INVALID');
     if (!isDirectSpokenAnswer(answer, input, language)) throw new InvalidAnswerContentError('LLM_RESPONSE_NOT_DIRECT_CAST_INTERPRETATION');
-    // Keep the duration authoritative even if a provider returns a stale or
-    // approximate estimate.  The text length target and the TTS correction
-    // stage are both driven by the operator-selected targetSeconds.
+    // Keep the planning label stable even if a provider returns a stale
+    // estimate. Actual playback length is measured from the natural WAV.
     return withAnswerLengthMetrics({ ...answer, estimatedSeconds: targetSeconds }, language, targetSeconds, input.speechRate);
   }
 }

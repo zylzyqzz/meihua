@@ -1072,27 +1072,6 @@ function wavDurationMs(value: Buffer): number | undefined {
   return bytesPerSecond > 0 && dataSize > 0 ? Math.round((dataSize / bytesPerSecond) * 1_000) : undefined;
 }
 
-function retimeLocalWav(filePath: string, targetMs: number): number | undefined {
-  const ffmpeg = bundledFfmpegPath();
-  if (!ffmpeg || !existsSync(filePath)) return undefined;
-  const actualMs = wavDurationMs(readFileSync(filePath));
-  if (!actualMs || targetMs <= 0) return undefined;
-  const tempo = actualMs / targetMs;
-  if (tempo < 0.5 || tempo > 2) return undefined;
-  const temporaryPath = `${filePath}.retime.wav`;
-  const result = spawnSync(ffmpeg, [
-    '-y', '-hide_banner', '-loglevel', 'error', '-i', filePath,
-    '-filter:a', `atempo=${tempo.toFixed(6)}`, '-c:a', 'pcm_s16le', temporaryPath,
-  ], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
-  if (result.error || result.status !== 0 || !existsSync(temporaryPath)) {
-    try { unlinkSync(temporaryPath); } catch { /* best effort */ }
-    return undefined;
-  }
-  copyFileSync(temporaryPath, filePath);
-  unlinkSync(temporaryPath);
-  return wavDurationMs(readFileSync(filePath));
-}
-
 function validateVrmModel(path: string): { version: '0.x' | '1.x'; hasBlink: boolean; hasMouth: boolean } {
   const value = readFileSync(path);
   if (value.length < 20 || value.toString('ascii', 0, 4) !== 'glTF' || value.readUInt32LE(4) !== 2) {
@@ -5058,21 +5037,16 @@ export class LiveRuntime {
 
   private async enqueueTikfinityEvent(kind: LiveEventInboxItem['kind'], event: LiveChatEvent | LiveGiftEvent | LiveLikeEvent): Promise<void> {
     const item = this.persistence.enqueueLiveEvent({ source: 'tikfinity', eventId: event.eventId, kind, payload: event });
-    if (!item) {
-      this.persistence.recordEvent('TIKFINITY_INBOX_DUPLICATE', { kind, eventId: event.eventId });
-      return;
-    }
+    // The inbox unique key is the audit record. TikFinity can resend the same
+    // event many times per second; writing a second audit row for each resend
+    // previously consumed the control thread and delayed TTS callbacks.
+    if (!item) return;
     const intakeOpen = this.liveIntakeOpen();
     if (!intakeOpen) {
       // The operator console promises that room activity remains visible before
       // Start is pressed. Persist it, but finish it immediately so a later
       // session can never replay idle-room activity into qualifications.
       this.persistence.completeLiveEvent(item.id);
-    } else {
-      // Likes arrive in dense bursts. The durable inbox is already the raw
-      // audit trail, so duplicating every like into app_events only amplifies
-      // SQLite writes and can starve the HTTP server during a live session.
-      if (kind !== 'like') this.persistence.recordEvent('TIKFINITY_INBOX_RECEIVED', { id: item.id, kind, eventId: event.eventId });
     }
     // Coalesce bursts of likes/comments.  The inbox is durable and the admin
     // console polls it, while queue changes still publish immediately from
@@ -5857,19 +5831,31 @@ export class LiveRuntime {
    */
   private scheduleNextReadingPreprocess(): void {
     if (this.closing || !this.active) return;
-    const next = this.queue.list()[0];
-    if (!next || this.preprocessingReadings.has(next.readingId)) return;
-    const reading = this.getReading(next.readingId);
-    if (!reading || reading.status !== 'QUEUED' || (reading.meihua && reading.answer && reading.tts?.audioPath && reading.speechPlan)) return;
-    this.preprocessingReadings.add(next.readingId);
-    void this.preprocessQueuedReading(next.readingId).catch((error: unknown) => {
-      this.persistence.recordEvent('NEXT_READING_PREPROCESS_FAILED', {
-        message: error instanceof Error ? error.message : 'Unknown preprocessing error',
-      }, next.readingId);
-    }).finally(() => {
-      this.preprocessingReadings.delete(next.readingId);
-      if (!this.closing) this.publishSnapshot('STATE_CHANGED');
+    const next = this.queue.list().find((candidate) => {
+      if (this.preprocessingReadings.has(candidate.readingId)) return false;
+      const queued = this.getReading(candidate.readingId);
+      return Boolean(queued && queued.status === 'QUEUED'
+        && !(queued.meihua && queued.answer && queued.tts?.audioPath && queued.speechPlan));
     });
+    if (!next) return;
+    const reading = this.getReading(next.readingId);
+    if (!reading || reading.status !== 'QUEUED') return;
+    this.preprocessingReadings.add(next.readingId);
+    let prepared = false;
+    void this.preprocessQueuedReading(next.readingId)
+      .then(() => { prepared = true; })
+      .catch((error: unknown) => {
+        this.persistence.recordEvent('NEXT_READING_PREPROCESS_FAILED', {
+          message: error instanceof Error ? error.message : 'Unknown preprocessing error',
+        }, next.readingId);
+      }).finally(() => {
+        this.preprocessingReadings.delete(next.readingId);
+        if (!this.closing) this.publishSnapshot('STATE_CHANGED');
+        // One background worker walks the waiting queue in order. This keeps
+        // the next viewer ready without flooding DeepSeek or local TTS with
+        // concurrent jobs.
+        if (prepared && this.active && !this.closing) setImmediate(() => this.scheduleNextReadingPreprocess());
+      });
   }
 
   private async preprocessQueuedReading(readingId: string): Promise<void> {
@@ -5907,7 +5893,7 @@ export class LiveRuntime {
     if (this.requireReading(readingId).status !== 'QUEUED') return;
     const tts = reading.tts?.audioPath && existsSync(join(this.audioDirectory, basename(reading.tts.audioPath)))
       ? reading.tts
-      : await this.synthesizeWithFallback(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, voiceSnapshot);
+      : await this.synthesizeNaturalSpeech(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, voiceSnapshot);
     if (!tts.audioPath || tts.durationMs < 900) throw new Error('NEXT_TTS_AUDIO_INVALID');
     if (this.requireReading(readingId).status !== 'QUEUED') return;
     const audioFilePath = join(this.audioDirectory, basename(tts.audioPath));
@@ -5971,6 +5957,13 @@ export class LiveRuntime {
   private ensureQueueProcessing(): void {
     if (this.currentSession?.status !== 'LIVE') return;
     this.autoProcessing = true;
+    if (this.active) {
+      const activeReading = this.getReading(this.active.readingId);
+      if (activeReading?.status === 'SYNTHESIZING' || activeReading?.status === 'SPEAKING') {
+        this.scheduleNextReadingPreprocess();
+      }
+      return;
+    }
     queueMicrotask(() => void this.pump());
   }
 
@@ -6117,12 +6110,17 @@ export class LiveRuntime {
             clearInterval(ttsProgressTimer);
           }
         }, 15_000);
-        tts = await this.synthesizeWithFallback(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, lockedVoice)
+        const synthesis = this.synthesizeNaturalSpeech(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, lockedVoice)
           .catch((error) => {
             this.persistence.recordEvent('TTS_SYNTHESIS_FAILED', { message: error instanceof Error ? error.message : 'unknown', elapsedMs: Date.now() - ttsStartedAt }, readingId);
             throw error;
-          })
-          .finally(() => {
+          });
+        // The current WAV request has entered the service. Start preparing
+        // the waiting queue behind it now, so DeepSeek and the next synthesis
+        // overlap the current generation and playback instead of starting
+        // only after this viewer has finished.
+        setImmediate(() => this.scheduleNextReadingPreprocess());
+        tts = await synthesis.finally(() => {
             ttsProgressActive = false;
             clearInterval(ttsProgressTimer);
           });
@@ -6334,7 +6332,7 @@ export class LiveRuntime {
     }
   }
 
-  private async synthesizeWithFallback(readingId: string, text: string, targetSeconds: number, voiceSnapshot?: VoiceSelectionSnapshot) {
+  private async synthesizeNaturalSpeech(readingId: string, text: string, targetSeconds: number, voiceSnapshot?: VoiceSelectionSnapshot) {
     const selection = voiceSnapshot ?? this.resolveVoiceSelectionSnapshot();
     const adapter = this.getTtsAdapter();
     const input = {
@@ -6353,81 +6351,27 @@ export class LiveRuntime {
       ? await synthesize()
       : await this.withRetry('TTS_PRIMARY', readingId, synthesize);
     const targetMs = Math.max(3_000, targetSeconds * 1_000);
-    // Production acceptance allows a natural-speech window of ±15%.
-    // Tighter limits make local engines chase tiny cadence differences and
-    // can reject otherwise valid narration after all correction attempts.
     const toleranceMs = Math.max(1_200, targetMs * 0.15);
-    let best = first;
-    let requestedSpeed = input.speed;
-    const firstErrorMs = first.durationMs - targetMs;
-    const withDurationQuality = (result: typeof first, speed: number) => ({
-      ...result,
+    const durationErrorMs = first.durationMs - targetMs;
+    const measured = {
+      ...first,
       quality: {
-        ...result.quality,
+        ...first.quality,
         targetSeconds,
-        actualDurationMs: result.durationMs,
-        durationErrorMs: result.durationMs - targetMs,
-        durationTargetMet: Math.abs(result.durationMs - targetMs) <= toleranceMs,
-        speed,
+        actualDurationMs: first.durationMs,
+        durationErrorMs,
+        durationTargetMet: Math.abs(durationErrorMs) <= toleranceMs,
+        speed: input.speed,
       },
-    });
-    if (Math.abs(firstErrorMs) <= toleranceMs) {
-      this.persistence.recordSyncMetric('TTS_DURATION_MEASURED', { readingId, targetMs, actualMs: first.durationMs, errorMs: firstErrorMs, speed: input.speed, targetMet: true }, this.currentSession?.sessionId);
-      return withDurationQuality(first, input.speed);
-    }
-
-    // Kokoro ONNX inference is the expensive operation. Correct its finished
-    // WAV with a local tempo pass instead of synthesizing the same narration
-    // up to two more times. This keeps the requested duration contract without
-    // freezing the workbench for several minutes on CPU-only machines.
-    if (adapter.id === 'kokoro-tts') {
-      if (!first.audioPath) throw new Error('KOKORO_OUTPUT_PATH_MISSING');
-      const audioPath = join(this.audioDirectory, basename(first.audioPath));
-      const correctedDurationMs = retimeLocalWav(audioPath, targetMs);
-      if (!correctedDurationMs || Math.abs(correctedDurationMs - targetMs) > toleranceMs) {
-        throw new Error(`TTS_DURATION_TARGET_NOT_MET:${correctedDurationMs ?? first.durationMs}:${targetMs}`);
-      }
-      const corrected = { ...first, durationMs: correctedDurationMs };
-      this.persistence.recordSyncMetric('TTS_DURATION_CORRECTED', {
-        readingId, targetMs, correction: 'LOCAL_WAV_TEMPO', previousDurationMs: first.durationMs,
-        correctedDurationMs, previousSpeed: input.speed, correctedSpeed: input.speed,
-        errorMs: correctedDurationMs - targetMs, targetMet: true,
-      }, this.currentSession?.sessionId);
-      return withDurationQuality(corrected, input.speed);
-    }
-
-    // Every supported TTS adapter receives speed. Previously only the
-    // OpenAI-compatible adapter entered this loop, so Windows/GPT-SoVITS and
-    // the local accent engine could return a 7-second WAV for a 30-second
-    // entitlement and still be marked usable.
-    for (let correction = 0; correction < 2; correction += 1) {
-      const currentErrorMs = best.durationMs - targetMs;
-      if (Math.abs(currentErrorMs) <= toleranceMs) break;
-      const minimumSpeed = best.providerId?.includes('gptsovits') ? 0.6 : 0.25;
-      const maximumSpeed = best.providerId?.includes('gptsovits') ? 1.6 : 4;
-      const correctedSpeed = clampFloat(requestedSpeed * best.durationMs / targetMs, requestedSpeed, minimumSpeed, maximumSpeed);
-      if (Math.abs(correctedSpeed - requestedSpeed) < 0.03) break;
-      const corrected = await this.withRetry('TTS_DURATION_CORRECTION', readingId, () => this.runGpuTask('VOICE_SYNTHESIS', () => adapter.synthesize({
-        ...input, speed: correctedSpeed, targetSeconds,
-      })));
-      const correctedErrorMs = corrected.durationMs - targetMs;
-      this.persistence.recordSyncMetric('TTS_DURATION_CORRECTED', {
-        readingId, targetMs, correction: correction + 1, previousDurationMs: best.durationMs,
-        correctedDurationMs: corrected.durationMs, previousSpeed: requestedSpeed,
-        correctedSpeed, errorMs: correctedErrorMs, targetMet: Math.abs(correctedErrorMs) <= toleranceMs,
-      }, this.currentSession?.sessionId);
-      requestedSpeed = correctedSpeed;
-      if (Math.abs(correctedErrorMs) >= Math.abs(best.durationMs - targetMs)) break;
-      best = corrected;
-    }
+    };
+    // targetSeconds guides script planning; it never changes playback speed.
+    // The original WAV cadence is preserved and becomes the master clock.
     this.persistence.recordSyncMetric('TTS_DURATION_MEASURED', {
-      readingId, targetMs, actualMs: best.durationMs, errorMs: best.durationMs - targetMs,
-      speed: requestedSpeed, targetMet: Math.abs(best.durationMs - targetMs) <= toleranceMs,
+      readingId, targetMs, actualMs: first.durationMs, errorMs: durationErrorMs,
+      speed: input.speed, targetMet: Math.abs(durationErrorMs) <= toleranceMs,
+      timingPolicy: 'NATURAL_WAV_MASTER',
     }, this.currentSession?.sessionId);
-    if (Math.abs(best.durationMs - targetMs) > toleranceMs) {
-      throw new Error(`TTS_DURATION_TARGET_NOT_MET:${best.durationMs}:${targetMs}`);
-    }
-    return withDurationQuality(best, requestedSpeed);
+    return measured;
   }
 
   private async withRetry<T>(type: string, readingId: string, action: () => Promise<T>): Promise<T> {

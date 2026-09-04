@@ -33,6 +33,8 @@ describe('answer schema guard', () => {
       result: { primary: { name: '乾为天', number: 1, upperTrigram: '乾', lowerTrigram: '乾', lines: [] }, movingLines: [1], interpretationFacts: ['主卦乾为天'], engineVersion: 'test' },
     });
     expect(requestBody?.response_format?.json_schema?.strict).toBe(true);
+    expect(requestBody?.messages?.[0]?.content).toContain('everyday words, short sentences, and natural contractions');
+    expect(requestBody?.messages?.[0]?.content).toContain('Accuracy always comes from the supplied conclusion');
     const requestedLength = JSON.parse(requestBody?.messages?.[1]?.content).lengthTarget;
     expect(requestedLength).toEqual(estimateSpeechLengthTarget('en', 20, 1));
     expect(answer).toMatchObject({ estimatedSeconds: 20, opening: '', closing: '' });

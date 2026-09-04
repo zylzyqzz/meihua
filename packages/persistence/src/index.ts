@@ -726,7 +726,15 @@ export class SqlitePersistence {
     const inbox = Number(this.db.prepare(`
       DELETE FROM live_event_inbox WHERE received_at < ? AND status IN ('DONE', 'FAILED')
     `).run(input.rawEventBefore).changes);
-    const audit = Number(this.db.prepare('DELETE FROM app_events WHERE created_at < ?').run(input.auditBefore).changes);
+    // These rows duplicate the durable inbox and were emitted once per raw
+    // resend in older builds. They carry no business state and can dominate
+    // the audit table in a busy room.
+    const redundant = Number(this.db.prepare(`
+      DELETE FROM app_events
+      WHERE type IN ('TIKFINITY_INBOX_RECEIVED', 'TIKFINITY_INBOX_DUPLICATE', 'LIKE_RECEIVED')
+    `).run().changes);
+    const expired = Number(this.db.prepare('DELETE FROM app_events WHERE created_at < ?').run(input.auditBefore).changes);
+    const audit = redundant + expired;
     return { inbox, audit };
   }
 
