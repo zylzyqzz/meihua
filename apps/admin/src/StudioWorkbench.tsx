@@ -371,6 +371,7 @@ function StudioWorkbenchView({
   const previewRequestInFlightRef = useRef(false);
   const previewMountedRef = useRef(true);
   const publishInFlightRef = useRef(false);
+  const draftVersionRef = useRef(draft.version);
   const autoPublishTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lastAutoPublishAttemptRef = useRef<SceneProfile | undefined>(undefined);
   const notifyRef = useRef(notify);
@@ -379,6 +380,7 @@ function StudioWorkbenchView({
   }, [notify]);
   useEffect(() => {
     setWorkingProfile(structuredClone(draft.profile));
+    draftVersionRef.current = draft.version;
     setSaveState("SAVED");
     historyRef.current = [];
     futureRef.current = [];
@@ -739,11 +741,11 @@ function StudioWorkbenchView({
     publishInFlightRef.current = true;
     setSaveState("PUBLISHING");
     try {
-      await adminRequest("/api/scene-profile/publish", {
+      const result = await adminRequest<{ draftVersion?: number }>("/api/scene-profile/publish", {
         method: "POST",
-        body: JSON.stringify({ profile: workingProfile, expectedVersion: draft.version }),
+        body: JSON.stringify({ profile: workingProfile, expectedVersion: draftVersionRef.current }),
       });
-      await onReload();
+      if (result.draftVersion) draftVersionRef.current = result.draftVersion;
       setSaveState("SAVED");
       if (!silent) notify("已发布到 OBS，正式舞台已无感切换");
       return true;
@@ -771,7 +773,7 @@ function StudioWorkbenchView({
     return () => {
       if (autoPublishTimerRef.current) clearTimeout(autoPublishTimerRef.current);
     };
-  }, [draft.version, livePreview, saveState, workingProfile]);
+  }, [livePreview, saveState, workingProfile]);
 
   const publishAndCopyStageUrl = async () => {
     const published = await publish();

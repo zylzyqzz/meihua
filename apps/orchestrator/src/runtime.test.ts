@@ -176,6 +176,42 @@ describe('LiveRuntime intake controls', () => {
     });
   });
 
+  it.each([
+    ['english', "I'd like to know whether my new job will work out"],
+    ['spanish', 'Quisiera saber si encontraré un trabajo mejor'],
+    ['french', "J’aimerais savoir si cette relation va durer"],
+    ['german', 'Habe ich mit diesem Projekt Erfolg'],
+    ['japanese', 'この仕事を続けるべきかな'],
+    ['korean', '이 관계가 앞으로 어떻게 될까요'],
+    ['portuguese', 'Gostaria de saber se devo mudar de trabalho'],
+    ['russian', 'Можно ли мне сейчас менять работу'],
+  ])('queues a qualified %s question without requiring English punctuation', async (language, message) => {
+    const runtime = createRuntime();
+    runtime.startSession({ mode: 'REHEARSAL' });
+    runtime.pause();
+    const userId = `multilingual-${language}`;
+    await runtime.ingestLike({ source: 'tikfinity', eventId: `like-${language}`, userId, username: language, likeCount: 100, timestamp: Date.now(), raw: {} });
+    const reading = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: `chat-${language}`, userId, username: language, message, timestamp: Date.now() + 1, raw: {} });
+    expect(reading).toMatchObject({ status: 'QUEUED', rawQuestion: message });
+  });
+
+  it.each([
+    ['english-love', 'I love your voice'],
+    ['english-work', 'Nice work everyone'],
+    ['spanish', 'amor para todos'],
+    ['japanese', '仕事が好きです'],
+    ['korean', '연애 노래 좋아요'],
+  ])('keeps a qualified viewer pending after multilingual chatter: %s', async (name, message) => {
+    const runtime = createRuntime();
+    runtime.startSession({ mode: 'REHEARSAL' });
+    runtime.pause();
+    await runtime.ingestLike({ source: 'tikfinity', eventId: `like-chat-${name}`, userId: name, username: name, likeCount: 100, timestamp: Date.now(), raw: {} });
+    const reading = await runtime.ingestTikfinityChat({ source: 'tikfinity', eventId: `chat-noise-${name}`, userId: name, username: name, message, timestamp: Date.now() + 1, raw: {} });
+    expect(reading).toBeUndefined();
+    expect(runtime.getPendingQualifications()).toEqual(expect.arrayContaining([expect.objectContaining({ username: name, kind: 'LIKE' })]));
+    expect(runtime.getQueue()).toHaveLength(0);
+  });
+
   it('does not let keyword recognition bypass empty or advertising safety checks', async () => {
     const runtime = createRuntime();
     runtime.startSession({ mode: 'REHEARSAL' });

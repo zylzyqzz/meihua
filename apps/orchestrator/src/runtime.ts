@@ -110,14 +110,34 @@ const defaultCommentKeywords = [
   '适合吗', '可以吗', '能不能', '可不可以', '行不行', '该不该', '要不要', '会不会', '能否', '是否', '如何', '怎么办', '怎么样', '怎样', '什么时候', '何时', '多久', '为什么', '结果如何', '发展如何', '有机会吗', '能成功吗', '值得吗', '选哪个', '哪一个', '？', '?',
   '换工作', '找工作', '事业发展', '适合创业', '生意如何', '合作顺利吗', '项目能成吗', '什么时候发财', '财运如何', '收入会增加吗', '投资适合吗', '买房合适吗', '卖房顺利吗', '搬家合适吗', '出行顺利吗', '旅行合适吗', '考试能过吗', '学业如何', '能留学吗', '感情如何', '会复合吗', '桃花如何', '婚姻如何', '家庭关系',
   'reading', 'fortune reading', 'divination', 'hexagram', 'meihua', 'cast for me', 'calculate for me', 'read me', 'give me a reading', 'please read', 'should i', 'can i', 'could i', 'will i', 'would it', 'is it', 'are we', 'do i', 'does this', 'what will', 'when will', 'where should', 'why is', 'how will', 'how can', 'which one', 'career', 'new job', 'change jobs', 'business', 'money', 'finance', 'income', 'investment', 'love', 'relationship', 'marriage', 'reconcile', 'study', 'exam', 'school', 'move house', 'travel', 'project', 'decision',
-  'lectura', 'adivinación', 'debería', 'puedo', 'podré', 'cuándo', 'cómo', 'trabajo', 'dinero', 'amor', 'relación',
-  'lecture', 'divination', 'dois-je', 'puis-je', 'est-ce que', 'quand', 'comment', 'travail', 'argent', 'amour', 'relation',
-  'deutung', 'wahrsagung', 'sollte ich', 'kann ich', 'werde ich', 'wann', 'wie', 'arbeit', 'geld', 'liebe', 'beziehung',
-  '占って', '占い', '易占', 'どうすれば', 'できますか', 'でしょうか', 'いつ', '仕事', '転職', 'お金', '恋愛', '結婚',
-  '점쳐', '운세', '괘', '어떻게', '할까요', '가능할까요', '언제', '직업', '이직', '돈', '연애', '결혼',
-  'leitura', 'adivinhação', 'devo', 'posso', 'quando', 'como', 'trabalho', 'dinheiro', 'amor', 'relacionamento',
-  'гадание', 'предсказание', 'стоит ли', 'смогу ли', 'когда', 'как', 'работа', 'деньги', 'любовь', 'отношения',
+  "what's", "when's", "where's", "why's", "how's", "i'd like to know", 'i wonder', 'do you think', 'please tell me', 'any chance',
+  'lectura', 'adivinación', 'léeme', 'hazme una lectura', 'quisiera saber', 'me gustaría saber', 'será que', 'debería', 'puedo', 'podré', 'cuándo', 'cómo', 'trabajo', 'dinero', 'amor', 'relación',
+  'lecture', 'divination', 'fais-moi une lecture', 'je voudrais savoir', "j'aimerais savoir", 'vais-je', 'dois-je', 'puis-je', 'est-ce que', "qu'est-ce", 'quand', 'comment', 'travail', 'argent', 'amour', 'relation',
+  'deutung', 'wahrsagung', 'deute für mich', 'sollte ich', 'kann ich', 'werde ich', 'habe ich', 'wann', 'wie', 'arbeit', 'geld', 'liebe', 'beziehung',
+  '占って', '占ってください', '占い', '易占', '見てください', 'どうすれば', 'どうしたら', 'どうなる', 'できますか', 'でしょうか', 'いつ', 'かな', '仕事', '転職', 'お金', '恋愛', '結婚',
+  '점쳐', '점쳐 주세요', '운세 봐주세요', '운세', '괘', '어떻게', '할까요', '가능할까요', '언제', '무엇', '어느', '직업', '이직', '돈', '연애', '결혼',
+  'leitura', 'adivinhação', 'faça uma leitura', 'gostaria de saber', 'será que', 'devo', 'posso', 'poderei', 'quando', 'como', 'trabalho', 'dinheiro', 'amor', 'relacionamento',
+  'гадание', 'предсказание', 'погадайте мне', 'можно ли', 'стоит ли', 'смогу ли', 'когда', 'как', 'почему', 'работа', 'деньги', 'любовь', 'отношения',
 ];
+
+function canonicalRecognitionText(value: string, foldLatinAccents = false): string {
+  const normalized = value.normalize('NFKC').replace(/[‘’‛`´]/g, "'").trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  return foldLatinAccents ? normalized.normalize('NFD').replace(/\p{M}/gu, '') : normalized;
+}
+
+function containsRecognitionKeyword(source: string, keyword: string): boolean {
+  const latinLike = /\p{Script=Latin}/u.test(keyword);
+  const normalizedSource = canonicalRecognitionText(source, latinLike);
+  const normalizedKeyword = canonicalRecognitionText(keyword, latinLike);
+  if (!normalizedKeyword) return false;
+  // Latin/Cyrillic words need token boundaries: `career` must not match part
+  // of another word. CJK keywords intentionally keep substring semantics.
+  if (/^[\p{Script=Latin}\p{Script=Cyrillic}\p{N}' -]+$/u.test(normalizedKeyword)) {
+    const escaped = normalizedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, 'u').test(normalizedSource);
+  }
+  return normalizedSource.includes(normalizedKeyword);
+}
 
 export const defaultSettings: AppSettings = {
   queue: {
@@ -1250,6 +1270,7 @@ export class LiveRuntime {
     this.applyProductionDefaultsOnce();
     this.applyQueuePolicyV2Once();
     this.applyQuestionRecognitionPolicyV3Once();
+    this.applyQuestionRecognitionPolicyV4Once();
     this.persistence.alignPendingQualificationExpiry(this.settings.queue.expireMinutes);
     this.seedDevelopmentDigitalHumanProfiles();
     this.seedDefaultPresentationProfile();
@@ -1587,6 +1608,29 @@ export class LiveRuntime {
       keywordCount: defaultCommentKeywords.length,
       languages: ['zh-CN', 'en', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru'],
       entitlementExpireMinutes: waitingMinutes,
+    });
+  }
+
+  private applyQuestionRecognitionPolicyV4Once(): void {
+    if (this.persistence.getSetting<boolean>('production-policy-v4', false)) return;
+    const rules = this.settings.engagement.commentRules.map((rule, index) => index === 0 ? {
+      ...rule,
+      label: '多语言问题识别',
+      keywords: [...new Map([...rule.keywords, ...defaultCommentKeywords].map((keyword) => [canonicalRecognitionText(keyword, /\p{Script=Latin}/u.test(keyword)), keyword])).values()],
+      stripKeyword: false,
+    } : rule);
+    this.settings = normalizeSettings({
+      ...this.settings,
+      moderation: { ...this.settings.moderation, treatAnyCommentAsQuestion: false },
+      engagement: { ...this.settings.engagement, commentRules: rules.length ? rules : defaultSettings.engagement.commentRules },
+    });
+    this.persistence.setSetting('settings', this.settings);
+    this.persistence.setSetting('production-policy-v4', true);
+    this.persistence.recordEvent('QUESTION_RECOGNITION_POLICY_V4_APPLIED', {
+      keywordCount: this.settings.engagement.commentRules[0]?.keywords.length ?? 0,
+      languages: ['zh-CN', 'en', 'es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru'],
+      unicodeNormalization: 'NFKC',
+      latinWordBoundaries: true,
     });
   }
 
@@ -2290,7 +2334,7 @@ export class LiveRuntime {
     return this.draftProfileVersion;
   }
 
-  publishSceneDraft(input: { profile?: SceneProfile; expectedVersion?: number } = {}): { ok: boolean; version?: SceneProfileVersion; publishedVersionId?: string; publishedAt?: number; sceneHash?: string; reason?: string } {
+  publishSceneDraft(input: { profile?: SceneProfile; expectedVersion?: number } = {}): { ok: boolean; version?: SceneProfileVersion; draftVersion?: number; draftVersionId?: string; publishedVersionId?: string; publishedAt?: number; sceneHash?: string; reason?: string } {
     if (input.expectedVersion !== undefined && input.expectedVersion !== this.draftProfileVersion.version) {
       return { ok: false, reason: 'SCENE_DRAFT_VERSION_CONFLICT' };
     }
@@ -2311,7 +2355,7 @@ export class LiveRuntime {
     this.persistence.recordEvent('SCENE_PROFILE_PUBLISHED', { versionId: this.publishedProfileVersion.versionId, version: this.publishedProfileVersion.version });
     this.broadcastV2('PROFILE_PUBLISHED', this.publishedProfileVersion);
     const sceneHash = createHash('sha256').update(JSON.stringify(this.publishedProfileVersion.profile)).digest('hex');
-    return { ok: true, version: this.publishedProfileVersion, publishedVersionId: this.publishedProfileVersion.versionId, publishedAt: now, sceneHash };
+    return { ok: true, version: this.publishedProfileVersion, draftVersion: nextDraft.version, draftVersionId: nextDraft.versionId, publishedVersionId: this.publishedProfileVersion.versionId, publishedAt: now, sceneHash };
   }
 
   restoreSceneVersion(versionId: string): { ok: boolean; draft?: SceneProfileVersion; reason?: string } {
@@ -4880,13 +4924,13 @@ export class LiveRuntime {
   }
 
   private commentMatches(message: string, rule: CommentRule): { matched: true; question?: string; keyword?: string } | undefined {
-    const source = message.trim();
+    const source = message.normalize('NFKC').trim();
     // 空白设置：关键词留空 = 匹配任何评论（运营口径：任何评论都算一次提问）
     if (!rule.keywords.length) return { matched: true, question: rule.stripKeyword ? source : source };
     for (const keyword of rule.keywords) {
       let matched = false;
-      if (rule.matchMode === 'EXACT') matched = source.toLocaleLowerCase() === keyword.toLocaleLowerCase();
-      else if (rule.matchMode === 'CONTAINS') matched = source.toLocaleLowerCase().includes(keyword.toLocaleLowerCase());
+      if (rule.matchMode === 'EXACT') matched = canonicalRecognitionText(source, /\p{Script=Latin}/u.test(keyword)) === canonicalRecognitionText(keyword, /\p{Script=Latin}/u.test(keyword));
+      else if (rule.matchMode === 'CONTAINS') matched = containsRecognitionKeyword(source, keyword);
       else {
         try { matched = new RegExp(keyword, 'iu').test(source); } catch { matched = false; }
       }
@@ -4910,7 +4954,7 @@ export class LiveRuntime {
     message: string,
     match: { matched: true; question?: string; keyword?: string } | undefined,
   ): { question: string; moderation: ReturnType<typeof moderateQuestion>; normalizedFromKeyword: boolean } {
-    const original = (match?.question ?? message).trim();
+    const original = (match?.question ?? message).normalize('NFKC').trim();
     const initial = moderateQuestion(original, this.settings.moderation);
     if (initial.decision === 'ALLOW' || !match) {
       return { question: initial.normalizedQuestion, moderation: initial, normalizedFromKeyword: false };
@@ -4931,21 +4975,35 @@ export class LiveRuntime {
       'reading', 'fortune reading', 'divination', 'hexagram', 'meihua', 'cast for me', 'calculate for me', 'read me', 'give me a reading', 'please read',
       'lectura', 'adivinación', 'lecture', 'deutung', 'wahrsagung', '占って', '占い', '易占', '점쳐', '운세', '괘',
       'leitura', 'adivinhação', 'гадание', 'предсказание',
-    ]);
-    const normalizedKeyword = match.keyword?.trim().toLocaleLowerCase();
+    ].map((item) => canonicalRecognitionText(item, /\p{Script=Latin}/u.test(item))));
+    const bareTopicIntents = new Set([
+      'career', 'new job', 'business', 'money', 'finance', 'income', 'investment', 'love', 'relationship', 'marriage', 'study', 'exam', 'school', 'travel', 'project', 'decision',
+      'trabajo', 'dinero', 'amor', 'relación', 'travail', 'argent', 'amour', 'relation', 'arbeit', 'geld', 'liebe', 'beziehung',
+      '仕事', '転職', 'お金', '恋愛', '結婚', '직업', '이직', '돈', '연애', '결혼', 'trabalho', 'dinheiro', 'relacionamento', 'работа', 'деньги', 'любовь', 'отношения',
+    ].map((item) => canonicalRecognitionText(item, /\p{Script=Latin}/u.test(item))));
+    const explicitReadingRequests = /帮我(?:算|测)|请(?:测|算)|想(?:测|问)|cast\s+for\s+me|calculate\s+for\s+me|read\s+me|give\s+me\s+a\s+reading|please\s+(?:read|tell)|hazme\s+una\s+lectura|léeme|fais-moi\s+une\s+lecture|deute\s+für\s+mich|占って(?:ください)?|見てください|점쳐\s*주세요|운세\s*봐주세요|faça\s+uma\s+leitura|погадайте\s+мне/iu;
+    const foldKeyword = Boolean(match.keyword && /\p{Script=Latin}/u.test(match.keyword));
+    const normalizedKeyword = match.keyword ? canonicalRecognitionText(match.keyword, foldKeyword) : undefined;
+    const normalizedOriginal = canonicalRecognitionText(original, foldKeyword);
     const isBareIntent = Boolean(normalizedKeyword)
-      && original.toLocaleLowerCase() === normalizedKeyword
+      && normalizedOriginal === normalizedKeyword
       && bareReadingIntents.has(normalizedKeyword!);
+    const isBareTopic = Boolean(normalizedKeyword)
+      && normalizedOriginal === normalizedKeyword
+      && bareTopicIntents.has(normalizedKeyword!);
+    const isExplicitReadingRequest = explicitReadingRequests.test(original);
 
     let candidate = original;
-    if (isBareIntent || [...meaningful].length < this.settings.moderation.minChars) {
+    if (isBareIntent || (isExplicitReadingRequest && [...meaningful].length < this.settings.moderation.minChars)) {
       if (/\p{Script=Hangul}/u.test(original)) candidate = '현재 제 전반적인 운세와 가장 주의해야 할 점은 무엇인가요?';
       else if (/[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(original)) candidate = '今の全体的な運勢と、最も注意すべきことは何ですか？';
       else if (/\p{Script=Han}/u.test(original)) candidate = '请为我测算当前整体运势，以及现在最需要注意的事情？';
       else if (/\p{Script=Cyrillic}/u.test(original)) candidate = 'Что мне сейчас важнее всего учитывать в моей общей ситуации?';
       else candidate = 'What is the most important guidance for my current overall situation?';
-    } else if (!/[?？]\s*$/u.test(candidate)) {
+    } else if (isBareTopic || isExplicitReadingRequest) {
       candidate = `${candidate}?`;
+    } else {
+      return { question: initial.normalizedQuestion, moderation: initial, normalizedFromKeyword: false };
     }
 
     const moderation = moderateQuestion(candidate, this.settings.moderation);

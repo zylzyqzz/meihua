@@ -19,6 +19,10 @@ app = FastAPI(title="Meihua Kokoro Local English Voice", version="1.0.0")
 _engine = None
 _engine_error: str | None = None
 _engine_lock = threading.Lock()
+_synthesis_lock = threading.Lock()
+_synthesis_state_lock = threading.Lock()
+_synthesis_waiting = 0
+_synthesis_active = False
 
 
 class SynthesizeRequest(BaseModel):
@@ -81,6 +85,9 @@ def health():
             load_engine()
         except Exception:
             pass
+    with _synthesis_state_lock:
+        synthesis_waiting = _synthesis_waiting
+        synthesis_active = _synthesis_active
     return {
         "ready": files_ready and _engine is not None and _engine_error is None,
         "model_ready": files_ready,
@@ -90,11 +97,14 @@ def health():
         "model": MODEL_PATH.name,
         "default_voice": DEFAULT_VOICE,
         "voices": ["af_heart", "af_bella", "af_sarah", "bf_emma"],
+        "synthesis_active": synthesis_active,
+        "synthesis_waiting": synthesis_waiting,
     }
 
 
 @app.post("/synthesize")
 def synthesize(request: SynthesizeRequest):
+    global _synthesis_active, _synthesis_waiting
     voice = request.voice.strip() or DEFAULT_VOICE
     if not voice.lower().startswith(("af_", "bf_")):
         raise HTTPException(status_code=400, detail="KOKORO_VOICE_UNSUPPORTED")
@@ -106,8 +116,20 @@ def synthesize(request: SynthesizeRequest):
         output_path = allowed_output_path(request.output_path)
         engine = load_engine()
         lang = "en-gb" if voice.lower().startswith("bf_") or locale == "en-gb" else "en-us"
-        started = time.perf_counter()
-        samples, sample_rate = engine.create(request.text.strip(), voice=voice, speed=request.speed, lang=lang)
+        queued_at = time.perf_counter()
+        with _synthesis_state_lock:
+            _synthesis_waiting += 1
+        with _synthesis_lock:
+            queue_ms = round((time.perf_counter() - queued_at) * 1000)
+            with _synthesis_state_lock:
+                _synthesis_waiting -= 1
+                _synthesis_active = True
+            started = time.perf_counter()
+            try:
+                samples, sample_rate = engine.create(request.text.strip(), voice=voice, speed=request.speed, lang=lang)
+            finally:
+                with _synthesis_state_lock:
+                    _synthesis_active = False
         temp_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
         import soundfile as sf
 
@@ -121,6 +143,7 @@ def synthesize(request: SynthesizeRequest):
             "wav_seconds": round(len(samples) / sample_rate, 3),
             "runtime_mode": runtime_mode(),
             "elapsed_ms": round((time.perf_counter() - started) * 1000),
+            "queue_ms": queue_ms,
             "output_path": str(output_path),
         }
     except ValueError as exc:

@@ -121,7 +121,7 @@ describe('V2 director and synchronized plan', () => {
     const runtime = createRuntime();
     const before = runtime.getSceneDraft();
     runtime.updateSceneDraft({ ...before.profile, name: '下一场草稿' });
-    expect(runtime.publishSceneDraft()).toMatchObject({ ok: true });
+    expect(runtime.publishSceneDraft()).toMatchObject({ ok: true, draftVersion: before.version + 1 });
     const session = runtime.startSession({ mode: 'REHEARSAL' });
     expect(session.ok).toBe(true);
     runtime.updateSceneDraft({ ...runtime.getSceneDraft().profile, name: '直播中编辑的下一场' });

@@ -378,6 +378,7 @@ function PresentationPanel({ settings, assets, onSaved }: { settings: AppSetting
 
 export function App() {
   const [tab, setTab] = useState<Tab>('live');
+  const activeTabRef = useRef<Tab>('live');
   const [health, setHealth] = useState<RuntimeHealth>();
   const [settings, setSettings] = useState<AppSettings>();
   const [queue, setQueue] = useState<QueueRow[]>([]);
@@ -508,20 +509,25 @@ export function App() {
     // 单项失败只跳过该项（沿用旧值），绝不让整个刷新链挂掉导致页面空白
     const settle = <T,>(promise: Promise<T>) => promise.then((value) => ({ ok: true as const, value }), (): { ok: false } => ({ ok: false }));
     // 全部先并发发出，再逐个收割（保留各自类型）
-    const healthPr = request<RuntimeHealth>('/api/health');
+    const workbenchRefresh = activeTabRef.current === 'obs';
+    const healthPr = workbenchRefresh ? Promise.resolve<RuntimeHealth | undefined>(undefined) : request<RuntimeHealth>('/api/health');
     const settingsPr = request<AppSettings>('/api/settings');
-    const queuePr = request<QueueRow[]>('/api/queue');
-    const overviewPr = request<QueueOverviewEntry[]>('/api/queue/overview');
+    const queuePr = workbenchRefresh ? Promise.resolve<QueueRow[] | undefined>(undefined) : request<QueueRow[]>('/api/queue');
+    const overviewPr = workbenchRefresh ? Promise.resolve<QueueOverviewEntry[] | undefined>(undefined) : request<QueueOverviewEntry[]>('/api/queue/overview');
     const directorPr = request<DirectorState>('/api/director/state');
-    const preflightPr = request<Preflight>('/api/preflight?mode=LIVE');
+    const preflightPr = workbenchRefresh ? Promise.resolve<Preflight | undefined>(undefined) : request<Preflight>('/api/preflight?mode=LIVE');
     const draftPr = request<SceneProfileVersion>('/api/scene-profile/draft');
     const assetsPr = request<MediaAsset[]>('/api/media-assets');
-    const readingsPr = request<Reading[]>('/api/readings?limit=80');
-    const eventsPr = request<AppEvent[]>('/api/logs?limit=100');
-    const capturePr = request<LiveCaptureItem[]>('/api/live-events/recent?limit=20');
-    const pendingPr = request<PendingQualification[]>('/api/qualifications/pending');
-    const giftsPr = request<CapturedGift[]>('/api/live-events/gift-catalog');
-    const secretsPr = request<ProviderSecretStatus>('/api/providers/secrets/status');
+    // Full readings contain hexagram facts, scripts and media snapshots. On
+    // the production database this response is ~3 MB and blocks the local
+    // control process for several seconds. Load it only on the records page;
+    // the workbench must never pay this cost during its 15-second refresh.
+    const readingsPr = activeTabRef.current === 'records' ? request<Reading[]>('/api/readings?limit=80') : Promise.resolve<Reading[] | undefined>(undefined);
+    const eventsPr = activeTabRef.current === 'records' ? request<AppEvent[]>('/api/logs?limit=100') : Promise.resolve<AppEvent[] | undefined>(undefined);
+    const capturePr = workbenchRefresh ? Promise.resolve<LiveCaptureItem[] | undefined>(undefined) : request<LiveCaptureItem[]>('/api/live-events/recent?limit=20');
+    const pendingPr = workbenchRefresh ? Promise.resolve<PendingQualification[] | undefined>(undefined) : request<PendingQualification[]>('/api/qualifications/pending');
+    const giftsPr = workbenchRefresh ? Promise.resolve<CapturedGift[] | undefined>(undefined) : request<CapturedGift[]>('/api/live-events/gift-catalog');
+    const secretsPr = workbenchRefresh ? Promise.resolve<ProviderSecretStatus | undefined>(undefined) : request<ProviderSecretStatus>('/api/providers/secrets/status');
     const settingsRes = await settle(settingsPr);
     // Render the operator console from settings as soon as the core API is
     // available.  Health includes aggregate metrics and optional providers;
@@ -545,17 +551,17 @@ export function App() {
     const nextDraft = draftRes.ok ? draftRes.value : undefined;
     const hasAvatarAsset = nextDraft ? Object.values(nextDraft.profile.avatar.slots).some((slot) => slot.assetId) : false;
     if (nextHealth) setHealth(nextSettings && nextSettings.providers.avatar.adapter === 'none' && !hasAvatarAsset ? { ...nextHealth, avatar: 'NOT_CONFIGURED' } : nextHealth);
-    if (queueRes.ok) setQueue(arrayOrEmpty<QueueRow>(queueRes.value));
-    if (overviewRes.ok) setQueueOverview(arrayOrEmpty<QueueOverviewEntry>(overviewRes.value));
+    if (queueRes.ok && queueRes.value) setQueue(arrayOrEmpty<QueueRow>(queueRes.value));
+    if (overviewRes.ok && overviewRes.value) setQueueOverview(arrayOrEmpty<QueueOverviewEntry>(overviewRes.value));
     if (directorRes.ok) setDirector(directorRes.value);
-    if (preflightRes.ok) setPreflight(preflightRes.value);
+    if (preflightRes.ok && preflightRes.value) setPreflight(preflightRes.value);
     if (assetsRes.ok) setAssets(arrayOrEmpty<MediaAsset>(assetsRes.value));
-    if (readingsRes.ok) setReadings(arrayOrEmpty<Reading>(readingsRes.value));
-    if (eventsRes.ok) setEvents(arrayOrEmpty<AppEvent>(eventsRes.value));
-    if (captureRes.ok) setCaptureHistory(arrayOrEmpty<LiveCaptureItem>(captureRes.value));
-    if (pendingRes.ok) setPendingQualifications(arrayOrEmpty<PendingQualification>(pendingRes.value));
-    if (giftsRes.ok) setCapturedGifts(arrayOrEmpty<CapturedGift>(giftsRes.value));
-    if (secretsRes.ok) setSecretStatus(secretsRes.value);
+    if (readingsRes.ok && readingsRes.value) setReadings(arrayOrEmpty<Reading>(readingsRes.value));
+    if (eventsRes.ok && eventsRes.value) setEvents(arrayOrEmpty<AppEvent>(eventsRes.value));
+    if (captureRes.ok && captureRes.value) setCaptureHistory(arrayOrEmpty<LiveCaptureItem>(captureRes.value));
+    if (pendingRes.ok && pendingRes.value) setPendingQualifications(arrayOrEmpty<PendingQualification>(pendingRes.value));
+    if (giftsRes.ok && giftsRes.value) setCapturedGifts(arrayOrEmpty<CapturedGift>(giftsRes.value));
+    if (secretsRes.ok && secretsRes.value) setSecretStatus(secretsRes.value);
     if (nextSettings) setSettings((current) => replaceEditable || !current ? nextSettings : current);
     setDraft((current) => {
       if (!canvasLayoutSynced.current && nextDraft) {
@@ -565,7 +571,7 @@ export function App() {
       }
       return replaceEditable || !current ? nextDraft : current;
     });
-    if (healthRes.ok && draftRes.ok) {
+    if ((!workbenchRefresh || healthRes.ok) && draftRes.ok) {
       setAuthExpired(false);
       window.sessionStorage.removeItem('meihua-auth-reload-attempted');
     }
@@ -697,11 +703,23 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    activeTabRef.current = tab;
     const resetScroll = () => window.scrollTo({ top: 0, behavior: 'auto' });
     resetScroll();
     const frame = window.requestAnimationFrame(resetScroll);
     const timer = window.setTimeout(resetScroll, 120);
     return () => { window.cancelAnimationFrame(frame); window.clearTimeout(timer); };
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'records') return;
+    void Promise.all([
+      request<Reading[]>('/api/readings?limit=80'),
+      request<AppEvent[]>('/api/logs?limit=100'),
+    ]).then(([nextReadings, nextEvents]) => {
+      setReadings(arrayOrEmpty<Reading>(nextReadings));
+      setEvents(arrayOrEmpty<AppEvent>(nextEvents));
+    }).catch(() => undefined);
   }, [tab]);
 
   const act = async (name: string, action: () => Promise<unknown>, success: string, reloadEditable = false) => {
