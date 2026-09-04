@@ -24,11 +24,24 @@ export async function adminRequest<T>(path: string, init?: RequestInit): Promise
   });
   let response: Response;
   try { response = await send(); }
-  catch { response = await send(); }
+  catch {
+    try { response = await send(); }
+    catch { throw new Error('无法连接控制服务，请刷新中控页面后重试'); }
+  }
   const body = await response.json().catch(() => ({}));
   if (response.status === 401 && body.error === 'LOCAL_CONTROL_AUTH_REQUIRED') window.dispatchEvent(new CustomEvent('meihua-auth-expired'));
   if (!response.ok) {
-    const error = new Error(body.reason ?? body.error ?? `HTTP ${response.status}`) as Error & { usages?: string[] };
+    const failedChecks = Array.isArray(body.preflight?.checks)
+      ? body.preflight.checks.filter((item: { status?: string }) => item.status === 'FAIL').map((item: { label?: string; message?: string }) => `${item.label ?? '检查项'}：${item.message ?? '未通过'}`)
+      : [];
+    const reason = body.reason === 'LIVE_PREFLIGHT_FAILED'
+      ? `无法开播：${failedChecks.join('；') || '开播预检未通过'}`
+      : body.reason === 'PRESENTATION_VIDEO_NOT_READY'
+        ? `无法开播：预录视频尚未就绪${failedChecks.length ? `；${failedChecks.join('；')}` : ''}`
+        : body.reason === 'DIGITAL_HUMAN_NOT_READY'
+          ? `无法开播：数字人服务尚未就绪${failedChecks.length ? `；${failedChecks.join('；')}` : ''}`
+          : body.reason ?? body.error ?? `HTTP ${response.status}`;
+    const error = new Error(reason) as Error & { usages?: string[] };
     if (Array.isArray(body.usages)) error.usages = body.usages;
     throw error;
   }

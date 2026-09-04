@@ -1141,6 +1141,9 @@ export class LiveRuntime {
   private readonly avatarCloneAliyunSecretPath: string;
   private readonly avatarCloneBaiduSecretPath: string;
   private readonly providerVerification = new Map<'llm' | 'tts', { fingerprint: string; verifiedAt: number }>();
+  private readonly serviceFetcher: typeof fetch;
+  private kokoroServiceHealth = { ready: false, checkedAt: 0, detail: '尚未检查本地 Kokoro 服务' };
+  private providerReadinessProbe?: Promise<void>;
   private readonly startedAt = Date.now();
   private readonly recentQuestionKeys = new Map<string, number>();
   private readonly likeTotals = new Map<string, number>();
@@ -1197,7 +1200,7 @@ export class LiveRuntime {
   private liveInboxSnapshotTimer?: NodeJS.Timeout;
   private closing = false;
 
-  constructor(private readonly persistence: SqlitePersistence, options: { audioDirectory?: string; voicesDirectory?: string; mediaDirectory?: string; systemAssetDirectory?: string; initialSettings?: AppSettingsPatch; audioPlayer?: NativeAudioPlayer; museTalkFetcher?: typeof fetch; ttsAdapter?: TtsAdapter } = {}) {
+  constructor(private readonly persistence: SqlitePersistence, options: { audioDirectory?: string; voicesDirectory?: string; mediaDirectory?: string; systemAssetDirectory?: string; initialSettings?: AppSettingsPatch; audioPlayer?: NativeAudioPlayer; museTalkFetcher?: typeof fetch; serviceFetcher?: typeof fetch; ttsAdapter?: TtsAdapter } = {}) {
     this.audioDirectory = options.audioDirectory ?? join(process.cwd(), 'data', 'audio');
     this.voicesDirectory = options.voicesDirectory ?? join(this.audioDirectory, '..', 'voices');
     this.mediaDirectory = options.mediaDirectory ?? join(process.cwd(), 'data', 'media');
@@ -1215,6 +1218,7 @@ export class LiveRuntime {
     this.reconcileMediaAssets();
     this.windowsTts = new WindowsTtsAdapter(this.audioDirectory);
     this.ttsAdapterOverride = options.ttsAdapter;
+    this.serviceFetcher = options.serviceFetcher ?? fetch;
     this.audioPlayer = options.audioPlayer ?? new WindowsNativeAudioPlayer();
     this.museTalkAvatarProvider = new MuseTalkAvatarAdapter({ baseUrl: defaultSettings.providers.avatar.url, fetcher: options.museTalkFetcher });
     this.initialSettings = normalizeSettings(options.initialSettings ?? defaultSettings);
@@ -1991,11 +1995,11 @@ export class LiveRuntime {
       providers[2] = { ...cloudHealth, status: !cloudHealth.configured ? 'NOT_CONFIGURED' : verified ? 'READY' : 'DEGRADED', message: verified ? `${cloudProvider === 'aliyun' ? '阿里云' : '百度曦灵'}克隆音色已通过真实试听` : cloudHealth.message };
     } else if (this.settings.providers.tts.adapter === 'kokoro') {
       const configured = Boolean(this.settings.providers.tts.kokoro.baseUrl && this.settings.providers.tts.kokoro.defaultVoice);
-      const verified = configured && this.providerVerification.get('tts')?.fingerprint === this.providerFingerprint('tts');
+      const serviceReady = configured && this.kokoroServiceHealth.ready && Date.now() - this.kokoroServiceHealth.checkedAt < 60_000;
       providers[2] = {
         id: 'kokoro-tts', label: 'Kokoro 本地英文女声', configured,
-        status: !configured ? 'NOT_CONFIGURED' : verified ? 'READY' : 'DEGRADED',
-        message: !configured ? '需要 Kokoro 本地服务配置' : verified ? '已生成真实 WAV 并完成试听验证' : '本地音色已配置，点击“生成并试听”完成真实验证',
+        status: !configured ? 'NOT_CONFIGURED' : serviceReady ? 'READY' : 'DEGRADED',
+        message: !configured ? '需要 Kokoro 本地服务配置' : serviceReady ? '本地 Kokoro 模型与音色服务已就绪' : this.kokoroServiceHealth.detail,
       };
     } else if (this.settings.providers.tts.adapter === 'gptsovits') {
       const voices = this.settings.providers.tts.gptsovits.voices.length;
@@ -2470,6 +2474,35 @@ export class LiveRuntime {
       playback: mode === 'VIDEO_ONCE' ? 'ONCE' : 'LOOP',
       fit: profile!.fit,
     };
+  }
+
+  /** Refresh managed local dependencies before health display or a LIVE start. */
+  async refreshProviderReadiness(force = false): Promise<void> {
+    if (this.settings.providers.tts.adapter !== 'kokoro') return;
+    const now = Date.now();
+    if (!force && now - this.kokoroServiceHealth.checkedAt < 15_000) return;
+    if (this.providerReadinessProbe) return this.providerReadinessProbe;
+    this.providerReadinessProbe = (async () => {
+      const baseUrl = this.settings.providers.tts.kokoro.baseUrl.trim().replace(/\/+$/, '');
+      if (!baseUrl) {
+        this.kokoroServiceHealth = { ready: false, checkedAt: Date.now(), detail: '需要 Kokoro 本地服务地址' };
+        return;
+      }
+      try {
+        const response = await this.serviceFetcher(`${baseUrl}/health`, { signal: AbortSignal.timeout(4_000) });
+        const body = (await response.json().catch(() => ({}))) as { ready?: boolean; model_ready?: boolean; engine_loaded?: boolean; engine_error?: string };
+        const ready = response.ok && body.ready === true && body.model_ready !== false && body.engine_loaded !== false;
+        this.kokoroServiceHealth = {
+          ready,
+          checkedAt: Date.now(),
+          detail: ready ? '本地 Kokoro 模型与音色服务已就绪' : body.engine_error || `Kokoro 服务未就绪（HTTP ${response.status}）`,
+        };
+      } catch (error) {
+        this.kokoroServiceHealth = { ready: false, checkedAt: Date.now(), detail: error instanceof Error ? `Kokoro 服务不可用：${error.message}` : 'Kokoro 服务不可用' };
+      }
+    })();
+    try { await this.providerReadinessProbe; }
+    finally { this.providerReadinessProbe = undefined; }
   }
 
   private seedDefaultPresentationProfile(): void {

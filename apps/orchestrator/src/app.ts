@@ -51,9 +51,13 @@ export async function createApp(runtime: LiveRuntime, options: { production?: bo
     });
   }
 
-  app.get('/api/health', async () => runtime.getHealth());
+  app.get('/api/health', async () => {
+    await runtime.refreshProviderReadiness();
+    return runtime.getHealth();
+  });
   app.get('/api/preflight', async (request) => {
     const { mode } = request.query as { mode?: LiveSessionMode };
+    await runtime.refreshProviderReadiness();
     return runtime.getPreflight(mode === 'LIVE' ? 'LIVE' : 'REHEARSAL');
   });
   app.get('/api/state', async () => runtime.getOverlayState());
@@ -359,6 +363,7 @@ export async function createApp(runtime: LiveRuntime, options: { production?: bo
   app.post<{ Body: { operatorNote?: string; mode?: LiveSessionMode } }>('/api/sessions/start', async (request, reply) => {
     const mode = request.body?.mode;
     if (mode !== 'LIVE' && mode !== 'REHEARSAL') return reply.code(400).send({ error: 'mode must be LIVE or REHEARSAL' });
+    await runtime.refreshProviderReadiness(true);
     const result = runtime.startSession({ operatorNote: request.body?.operatorNote, mode });
     return result.ok ? result : reply.code(409).send(result);
   });

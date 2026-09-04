@@ -57,6 +57,26 @@ describe('orchestrator HTTP API', () => {
     expect(apply.json()).toMatchObject({ canApply: false, applied: false });
   });
 
+  it('probes the managed Kokoro service and allows LIVE start without a manual audition', async () => {
+    const runtime = new LiveRuntime(new SqlitePersistence(':memory:'), {
+      serviceFetcher: async () => new Response(JSON.stringify({ ready: true, model_ready: true, engine_loaded: true }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    });
+    runtime.updatePresentationSettings({ mode: 'AUDIO_ONLY' });
+    const app = await createApp(runtime);
+    cleanups.push(async () => { await app.close(); runtime.close(); });
+
+    const preflight = await app.inject({ method: 'GET', url: '/api/preflight?mode=LIVE' });
+    expect(preflight.json().checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'tts', status: 'PASS', message: '本地 Kokoro 模型与音色服务已就绪' }),
+    ]));
+    const started = await app.inject({ method: 'POST', url: '/api/sessions/start', payload: { mode: 'LIVE' } });
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toMatchObject({ ok: true, session: { mode: 'LIVE', status: 'LIVE' } });
+  });
+
   it('simulates gift, pending question and official queue as one observable linkage', async () => {
     const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
     const app = await createApp(runtime);
