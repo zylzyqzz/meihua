@@ -110,7 +110,8 @@ describe('V2 director and synchronized plan', () => {
     expect(runtime.getDirectorCues()).toHaveLength(1);
     expect(runtime.getDirectorCues()[0]).toMatchObject({ sequence: 1, stage: 'IDLE', track: 'MAIN' });
     expect(runtime.pauseSession()).toMatchObject({ ok: true, session: { status: 'PAUSED' } });
-    expect(runtime.resumeSession()).toMatchObject({ ok: true, session: { status: 'LIVE' } });
+    expect(runtime.resume()).toMatchObject({ ok: true });
+    expect(runtime.getCurrentSession()).toMatchObject({ status: 'LIVE', endReason: undefined });
     const sequences = runtime.getDirectorCues().map((cue) => cue.sequence);
     expect(new Set(sequences).size).toBe(sequences.length);
     expect(runtime.endSession()).toMatchObject({ ok: true, session: { status: 'ENDED' } });

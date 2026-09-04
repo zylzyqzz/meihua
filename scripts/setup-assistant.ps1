@@ -2,7 +2,10 @@
 param(
   [string]$BundleRoot = '',
   [switch]$CheckOnly,
-  [switch]$AutoInstall
+  [switch]$AutoInstall,
+  [switch]$NoClear,
+  [switch]$SkipPackageVerification,
+  [string]$ReportPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -22,6 +25,11 @@ if ([string]::IsNullOrWhiteSpace($BundleRoot)) {
 $bundle = (Resolve-Path -LiteralPath $BundleRoot).Path
 $installerDirectory = Join-Path $bundle 'installers'
 New-Item -ItemType Directory -Path $installerDirectory -Force | Out-Null
+if ([string]::IsNullOrWhiteSpace($ReportPath)) {
+  $reportDirectory = Join-Path $bundle 'logs'
+  New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
+  $ReportPath = Join-Path $reportDirectory 'last-environment-report.json'
+}
 
 function Write-Status([string]$State, [string]$Label, [string]$Detail = '') {
   $color = if ($State -eq 'OK') { 'Green' } elseif ($State -eq 'WARN') { 'Yellow' } else { 'Red' }
@@ -118,12 +126,29 @@ function Invoke-PackageVerification {
 }
 
 function Show-Environment {
-  Clear-Host
+  if (-not $NoClear) { Clear-Host }
   Write-Host '=== 梅花直播系统｜环境检查与安装 ===' -ForegroundColor Cyan
   Write-Host ("目录：{0}" -f $bundle)
   Write-Host ''
-  $packageOk = Invoke-PackageVerification
+  $packageOk = if ($SkipPackageVerification) { $true } else { Invoke-PackageVerification }
+  if ($SkipPackageVerification) { Write-Status 'OK' '完整一体包' '已由统一入口完成自检' }
   Write-Host ''
+
+  $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
+  $is64Bit = [Environment]::Is64BitOperatingSystem
+  Write-Status $(if ($is64Bit) { 'OK' } else { 'FAIL' }) 'Windows 运行环境' $(if ($os) { $os.Caption } else { [Environment]::OSVersion.VersionString })
+
+  $drive = Get-PSDrive -Name ([IO.Path]::GetPathRoot($bundle).TrimEnd('\').TrimEnd(':')) -ErrorAction SilentlyContinue
+  $freeGb = if ($drive) { [Math]::Round($drive.Free / 1GB, 1) } else { 0 }
+  Write-Status $(if ($freeGb -ge 5) { 'OK' } elseif ($freeGb -ge 1) { 'WARN' } else { 'FAIL' }) '磁盘剩余空间' ("{0} GB" -f $freeGb)
+
+  $writable = $false
+  $writeProbe = Join-Path $bundle ('.meihua-write-probe-{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+  try {
+    [IO.File]::WriteAllText($writeProbe, 'ok', [Text.Encoding]::UTF8)
+    $writable = Test-Path -LiteralPath $writeProbe
+  } catch { $writable = $false } finally { Remove-Item -LiteralPath $writeProbe -Force -ErrorAction SilentlyContinue }
+  Write-Status $(if ($writable) { 'OK' } else { 'FAIL' }) '目录写入权限' $(if ($writable) { '数据库、音频和日志可写' } else { '请将整包移到有写入权限的目录' })
 
   $nvidia = Test-Nvidia
   if ($nvidia.Hardware -and $nvidia.Smi) { Write-Status 'OK' 'NVIDIA显卡与驱动' $nvidia.Hardware.Name }
@@ -143,12 +168,31 @@ function Show-Environment {
   $tikfinity = Find-Tikfinity
   if ($tikfinity) { Write-Status 'OK' 'TikFinity' $tikfinity } else { Write-Status 'FAIL' 'TikFinity' '未检测到' }
 
-  $usedPorts = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in @(3210, 5173, 5200, 9881, 9898, 9899) }
+  $usedPorts = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in @(3210, 5173, 5200, 9881, 9890, 9898, 9899) }
   if ($usedPorts) {
     Write-Status 'WARN' '运行端口' ((($usedPorts.LocalPort | Sort-Object -Unique) -join ', ') + ' 已占用；可能已有梅花实例运行')
   } else { Write-Status 'OK' '运行端口' '全部可用' }
 
-  return [pscustomobject]@{ Package=$packageOk; Nvidia=$nvidia; Cuda=$cudaReady; Obs=[bool]$obs; VbCable=$vbCable; Tikfinity=[bool]$tikfinity }
+  $state = [pscustomobject]@{
+    GeneratedAt = [DateTimeOffset]::Now.ToString('o')
+    BundleRoot = $bundle
+    Package = $packageOk
+    Windows64Bit = $is64Bit
+    Writable = $writable
+    FreeDiskGb = $freeGb
+    Nvidia = [bool]$nvidia.Hardware
+    NvidiaDriver = [bool]$nvidia.Smi
+    Cuda = $cudaReady
+    Obs = [bool]$obs
+    VbCable = $vbCable
+    Tikfinity = [bool]$tikfinity
+    PortsInUse = @($usedPorts.LocalPort | Sort-Object -Unique)
+    CanRunCore = $packageOk -and $is64Bit -and $writable -and $freeGb -ge 1
+    FormalLiveEnvironment = $packageOk -and $is64Bit -and $writable -and [bool]$obs -and $vbCable -and [bool]$tikfinity
+  }
+  $state | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
+  Write-Host ("环境报告：{0}" -f $ReportPath) -ForegroundColor DarkGray
+  return $state
 }
 
 function Install-Obs {
@@ -207,18 +251,24 @@ function Install-Missing([object]$state) {
 }
 
 $state = Show-Environment
-if ($CheckOnly) { return }
+if ($CheckOnly) {
+  if (-not $state.CanRunCore) { exit 1 }
+  exit 0
+}
 if ($AutoInstall) {
   try {
     Install-Missing $state
     Write-Host ''
-    Write-Host '自动安装流程已完成。首次安装VB-CABLE后请重启Windows。' -ForegroundColor Green
-    Start-Sleep -Seconds 2
-    return
+    $state = Show-Environment
+    if (-not $state.CanRunCore) { throw '核心运行环境仍不完整，请根据上方 FAIL 项处理。' }
+    if (-not $state.FormalLiveEnvironment) {
+      throw '正式直播环境仍有缺失项；VB-CABLE 首次安装后通常需要重启 Windows。'
+    }
+    Write-Host '自动安装与复检已完成，正式直播依赖已齐全。' -ForegroundColor Green
+    exit 0
   } catch {
     Write-Host ("自动安装失败：{0}" -f $_.Exception.Message) -ForegroundColor Red
-    Write-Host '窗口将在8秒后关闭，详细结果可重新运行本工具查看。' -ForegroundColor Yellow
-    Start-Sleep -Seconds 8
+    Write-Host ("详细结果：{0}" -f $ReportPath) -ForegroundColor Yellow
     exit 1
   }
 }

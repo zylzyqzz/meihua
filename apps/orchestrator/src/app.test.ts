@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SqlitePersistence } from '@meihua/persistence';
 import { createApp } from './app.js';
@@ -234,5 +235,21 @@ describe('orchestrator HTTP API', () => {
     expect(sources.json()).not.toEqual(expect.arrayContaining([expect.objectContaining({ sourceId: 'audio' })]));
     const preflight = await app.inject({ method: 'GET', url: '/api/preflight?mode=LIVE' });
     expect(preflight.json().checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'obs-sources', status: 'FAIL' })]));
+  });
+
+  it('accepts the connected integrated stage without requiring legacy per-module OBS sources', async () => {
+    const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
+    const socket = new EventEmitter() as EventEmitter & { send: (value: string) => void; readyState: number };
+    socket.send = () => undefined;
+    socket.readyState = 1;
+    runtime.attachOverlay(socket as never);
+    socket.emit('message', Buffer.from(JSON.stringify({ type: 'SOURCE_HELLO', sourceId: 'meihua-stage' })));
+    const app = await createApp(runtime);
+    cleanups.push(async () => { socket.emit('close'); await app.close(); runtime.close(); });
+
+    const preflight = await app.inject({ method: 'GET', url: '/api/preflight?mode=LIVE' });
+    expect(preflight.json().checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'obs-sources', status: 'PASS' }),
+    ]));
   });
 });

@@ -4,7 +4,7 @@ import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ProviderSettings, TtsResult } from '@meihua/core-types';
-import { CloudAvatarProviderAdapter, CloudVoiceCloneAdapter, ElevenLabsTtsAdapter, ElevenLabsVoiceClient, KokoroTtsAdapter, MuseTalkAvatarAdapter, OpenAICompatibleTtsAdapter, TimingFallbackTtsAdapter, WindowsNativeAudioPlayer, WindowsTtsAdapter, analyzeWavAmplitude, buildLipSyncPlan, mapSapiViseme, normalizeTikfinityEnvelope, pcm16MonoToWav, providerHealth, windowsSapiRate } from './index.js';
+import { CloudAvatarProviderAdapter, CloudVoiceCloneAdapter, ElevenLabsTtsAdapter, ElevenLabsVoiceClient, KokoroTtsAdapter, MuseTalkAvatarAdapter, OpenAICompatibleTtsAdapter, TikfinityLiveInputAdapter, TimingFallbackTtsAdapter, WindowsNativeAudioPlayer, WindowsTtsAdapter, analyzeWavAmplitude, buildLipSyncPlan, mapSapiViseme, normalizeTikfinityEnvelope, pcm16MonoToWav, providerHealth, windowsSapiRate } from './index.js';
 
 function pcmWav(samples: number[], sampleRate = 16_000): Buffer {
   const pcm = Buffer.alloc(samples.length * 2);
@@ -100,6 +100,12 @@ describe('offline adapters', () => {
     expect(gift).toMatchObject({ kind: 'gift', event: { eventId: 'g1', giftId: '5655', giftName: 'Rose', repeatCount: 3, giftType: 1, repeatEnd: true } });
     const like = normalizeTikfinityEnvelope({ event: 'like', data: { msgId: 'l1', likeCount: 12, totalLikeCount: 900, user: { uniqueId: 'viewer' } } }, 1002);
     expect(like).toMatchObject({ kind: 'like', event: { likeCount: 12, totalLikeCount: 900 } });
+  });
+
+  it('restores a recent TikFinity verification across a controlled restart', () => {
+    const adapter = new TikfinityLiveInputAdapter('ws://127.0.0.1:21213/');
+    adapter.restoreRecentVerification(1_234);
+    expect(adapter.diagnostics()).toMatchObject({ verified: true, lastEventAt: 1_234, connected: false, status: 'DISCONNECTED' });
   });
 
   it('accepts common TikFinity bridge aliases and nested payload wrappers', () => {

@@ -148,16 +148,30 @@ Copy-Tree $DesktopPath (Join-Path $bundle 'desktop')
 # 4. 启动器与说明
 $toolsDirectory = Join-Path $bundle '安装工具'
 $internalToolsDirectory = Join-Path $toolsDirectory '内部'
+$asciiToolsDirectory = Join-Path $bundle 'runtime-tools'
 New-Item -ItemType Directory -Path $internalToolsDirectory -Force | Out-Null
+New-Item -ItemType Directory -Path $asciiToolsDirectory -Force | Out-Null
 Copy-Item (Join-Path $ProjectRoot 'scripts\verify-bundle.ps1') (Join-Path $internalToolsDirectory '整包自检.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\setup-assistant.ps1') (Join-Path $internalToolsDirectory '环境助手.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\start-bundle-silent.ps1') (Join-Path $internalToolsDirectory '静默启动.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\bootstrap-bundle.ps1') (Join-Path $internalToolsDirectory '一键安装启动.ps1') -Force
 Copy-Item (Join-Path $ProjectRoot 'scripts\resolve-gpu-profile.ps1') (Join-Path $internalToolsDirectory 'resolve-gpu-profile.ps1') -Force
+# ASCII aliases keep the internal PowerShell entry points compatible with the
+# stock Windows PowerShell 5.1 parser on every system locale.
+Copy-Item (Join-Path $ProjectRoot 'scripts\verify-bundle.ps1') (Join-Path $internalToolsDirectory 'verify-bundle.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\setup-assistant.ps1') (Join-Path $internalToolsDirectory 'setup-assistant.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\start-bundle-silent.ps1') (Join-Path $internalToolsDirectory 'start-bundle-silent.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\bootstrap-bundle.ps1') (Join-Path $internalToolsDirectory 'bootstrap-bundle.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\verify-bundle.ps1') (Join-Path $asciiToolsDirectory 'verify-bundle.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\setup-assistant.ps1') (Join-Path $asciiToolsDirectory 'setup-assistant.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\start-bundle-silent.ps1') (Join-Path $asciiToolsDirectory 'start-bundle-silent.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\bootstrap-bundle.ps1') (Join-Path $asciiToolsDirectory 'bootstrap-bundle.ps1') -Force
+Copy-Item (Join-Path $ProjectRoot 'scripts\resolve-gpu-profile.ps1') (Join-Path $asciiToolsDirectory 'resolve-gpu-profile.ps1') -Force
 
 $verifyBat = @"
 @echo off
 chcp 65001 >nul
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0内部\整包自检.ps1" -BundleRoot "%~dp0.."
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\runtime-tools\verify-bundle.ps1" -BundleRoot "%~dp0.."
 echo.
 pause
 "@
@@ -165,62 +179,83 @@ Set-Content -Path (Join-Path $toolsDirectory '01-检查整包.bat') -Value $veri
 
 $environmentBat = @"
 @echo off
-rem Runs quietly in the background.  OBS is silent; VB-CABLE deliberately
-rem shows its official admin prompt because Windows cannot install a driver
-rem safely without it.
-start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0内部\环境助手.ps1" -BundleRoot "%~dp0.." -AutoInstall
-exit /b 0
+chcp 65001 >nul
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\runtime-tools\setup-assistant.ps1" -BundleRoot "%~dp0.." -AutoInstall
+if errorlevel 1 (
+  echo.
+  echo 环境安装未完成，请查看上方失败项。
+  pause
+  exit /b 1
+)
+echo 环境检查与安装完成。
 "@
 Set-Content -Path (Join-Path $toolsDirectory '02-检查并安装环境.bat') -Value $environmentBat -Encoding UTF8
+
+$bootstrapBat = @"
+@echo off
+chcp 65001 >nul
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\runtime-tools\bootstrap-bundle.ps1" -BundleRoot "%~dp0.." %*
+if errorlevel 1 (
+  echo.
+  echo 一键流程未完成，请查看上方提示和 logs 目录。
+  pause
+  exit /b 1
+)
+"@
+Set-Content -Path (Join-Path $toolsDirectory '03-一键检测安装并启动.bat') -Value $bootstrapBat -Encoding UTF8
 
 $launchBat = @"
 @echo off
 setlocal
+chcp 65001 >nul
 cd /d %~dp0
-
-set "MEIHUA_STUDIO_ROOT=%~dp0"
-
-rem 优先启动桌面客户端：它会自动拉起声音克隆(9881) / 目标口音(9899) / 视频数字人(9898) / 梅花中控(3210+5173+5200)，
-rem 托盘常驻，窗口关闭后可从托盘重新打开。
-if exist desktop\梅花中控.exe (
-  start "" desktop\梅花中控.exe
-  exit /b 0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0runtime-tools\start-bundle-silent.ps1" -BundleRoot "%~dp0." %*
+if errorlevel 1 (
+  echo.
+  echo 系统启动失败，请查看上方提示和 logs\last-start-report.json。
+  pause
+  exit /b 1
 )
-
-rem 兜底：无桌面端时回退为浏览器模式（同目录 app/ 结构）
-set MEIHUA_PROJECT_ROOT=%~dp0app
-set MEIHUA_PRODUCTION=1
-
-rem 自动拉起 TikFinity（若打包内含）
-if exist tikfinity\TikFinity.exe (
-  set "NO_PROXY=%NO_PROXY%,tikfinity.zerody.one,tikfinity-origin.zerody.one"
-  tasklist /FI "IMAGENAME eq TikFinity.exe" | find /I "TikFinity.exe" >nul || start "" tikfinity\TikFinity.exe
-)
-
-start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0安装工具\内部\静默启动.ps1" -BundleRoot "%~dp0."
-exit /b 0
 "@
 Set-Content -Path (Join-Path $bundle '2-启动系统.bat') -Value $launchBat -Encoding UTF8
 
 $installBat = @"
 @echo off
 setlocal
+chcp 65001 >nul
 cd /d %~dp0
-rem First-run dependency check and installation happens without a PowerShell
-rem window.  Only required Windows/UAC installer dialogs remain visible.
-start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%~dp0安装工具\内部\环境助手.ps1" -BundleRoot "%~dp0." -AutoInstall %*
-exit /b 0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0runtime-tools\setup-assistant.ps1" -BundleRoot "%~dp0." -AutoInstall %*
+if errorlevel 1 (
+  echo.
+  echo 环境安装未完成，请查看上方提示和 logs\last-environment-report.json。
+  pause
+  exit /b 1
+)
 "@
 Set-Content -Path (Join-Path $bundle '1-环境检查与安装.bat') -Value $installBat -Encoding UTF8
+
+$oneClickBat = @"
+@echo off
+setlocal
+chcp 65001 >nul
+cd /d %~dp0
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0runtime-tools\bootstrap-bundle.ps1" -BundleRoot "%~dp0." %*
+if errorlevel 1 (
+  echo.
+  echo 一键检测、安装或启动未完成，请查看上方提示和 logs 目录。
+  pause
+  exit /b 1
+)
+"@
+Set-Content -Path (Join-Path $bundle '0-一键检测安装并启动.bat') -Value $oneClickBat -Encoding UTF8
 
 $readme = @"
 # 梅花数字人直播一体包（MeihuaStudio）
 
 ## 一键使用（目标机：Windows + NVIDIA GPU）
 1. 解压本目录到任意盘（建议 NVMe 盘）。
-2. （首次）双击 `1-环境检查与安装.bat` - 检查并补齐显卡驱动、OBS、VB-CABLE、TikFinity、声音、数字人、模型与中控文件。
-3. 双击 `2-启动系统.bat` - 打开梅花中控桌面客户端（托盘常驻；未检测到桌面端时自动回退浏览器模式）。
-   桌面客户端会自动拉起声音克隆(9881) / 目标口音(9899) / 视频数字人(9898) / 梅花中控(3210+5173+5200)。
+2. 首次直接双击 `0-一键检测安装并启动.bat`，它会依次完成整包校验、环境补齐、按当前配置启动服务和运行验收。
+3. 以后双击 `2-启动系统.bat`；它会复用健康进程，只启动当前声音与画面模式真正需要的服务。
 4. 「数字人中心」按三步操作：选择语言并克隆声音、上传人物视频、选择人物和声音后启用。每次测算播报时自动生成对应声音和口型。
 5. OBS：只添加浏览器源 http://127.0.0.1:5173/obs/source/meihua-stage (1080x1920)，声音只从 VB-CABLE 音频总线进入。
 6. 按 `4-TikFinity图文攻略.md` 登录、绑定直播间并完成评论/点赞/礼物实播验证。
@@ -235,7 +270,7 @@ $readme = @"
 - app\tools\ffmpeg\  内置媒体处理组件
 
 ## 常见问题
-- 根目录只需按数字顺序操作：先看0，再运行1和2；3、4是使用攻略；5是完整源码；6是真实开发状态。
+- 推荐直接运行 `0-一键检测安装并启动.bat`；`1-环境检查与安装.bat` 和 `2-启动系统.bat` 继续保留用于分步排障。
 - 桌面端窗口关闭后程序仍在托盘：右键托盘图标「退出」才会停止全家服务。
 - 想直接用浏览器后台：运行 app\apps\orchestrator\dist\index.cjs（设置 MEIHUA_PRODUCTION=1）后访问 http://127.0.0.1:5200/。
 "@

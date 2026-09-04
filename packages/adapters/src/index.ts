@@ -2429,6 +2429,11 @@ export class TikfinityLiveInputAdapter implements LiveInputAdapter {
     this.state = { status: 'DISCONNECTED', connected: false, verified: false, url, reconnectAttempts: 0, events: { chat: 0, gift: 0, like: 0, follow: 0, share: 0, unknown: 0 }, recentSamples: [] };
   }
 
+  restoreRecentVerification(lastEventAt: number): void {
+    if (!Number.isFinite(lastEventAt) || lastEventAt <= 0) return;
+    this.state = { ...this.state, verified: true, lastEventAt, status: this.state.connected ? 'READY' : this.state.status };
+  }
+
   configure(url: string): void {
     if (url === this.url) return;
     this.url = url;
@@ -2452,7 +2457,7 @@ export class TikfinityLiveInputAdapter implements LiveInputAdapter {
       const socket = new WebSocket(this.url);
       this.socket = socket;
       socket.on('open', () => {
-        this.state = { ...this.state, status: 'DEGRADED', connected: true, lastConnectedAt: Date.now(), reconnectAttempts: 0, lastError: undefined };
+        this.state = { ...this.state, status: this.state.verified ? 'READY' : 'DEGRADED', connected: true, lastConnectedAt: Date.now(), reconnectAttempts: 0, lastError: undefined };
       });
       socket.on('message', (buffer) => {
         this.messageChain = this.messageChain.then(() => this.handleMessage(buffer.toString())).catch((error: unknown) => {

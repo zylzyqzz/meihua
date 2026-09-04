@@ -65,6 +65,7 @@ $required = @(
   @('installers\OBS-Studio-32.2.2-Windows-x64-Installer.exe', 'Offline OBS installer'),
   @('installers\VBCABLE_Driver_Pack45.zip', 'Offline VB-CABLE installer'),
   @('0-请先看这里.md', 'Start-here guide'),
+  @('0-一键检测安装并启动.bat', 'Unified check/install/start entry'),
   @('1-环境检查与安装.bat', 'Environment setup entry'),
   @('2-启动系统.bat', 'One-click launch entry'),
   @('3-操作攻略.md', 'Operator guide'),
@@ -72,6 +73,14 @@ $required = @(
   @('6-真实状态说明.md', 'Truthful implementation status'),
   @('安装工具\01-检查整包.bat', 'Bundle verification entry'),
   @('安装工具\02-检查并安装环境.bat', 'Environment setup entry'),
+  @('安装工具\03-一键检测安装并启动.bat', 'Unified setup entry'),
+  @('安装工具\内部\bootstrap-bundle.ps1', 'Unified setup implementation'),
+  @('安装工具\内部\start-bundle-silent.ps1', 'Production startup implementation'),
+  @('runtime-tools\bootstrap-bundle.ps1', 'Locale-safe unified setup implementation'),
+  @('runtime-tools\verify-bundle.ps1', 'Locale-safe bundle verification implementation'),
+  @('runtime-tools\setup-assistant.ps1', 'Locale-safe environment setup implementation'),
+  @('runtime-tools\start-bundle-silent.ps1', 'Locale-safe production startup implementation'),
+  @('runtime-tools\resolve-gpu-profile.ps1', 'Locale-safe GPU profile detection implementation'),
   @('desktop\MeihuaStudio.exe', 'Desktop launcher alternate name')
 )
 
@@ -155,6 +164,36 @@ if (Test-Path -LiteralPath $ffmpegExe) {
   Write-Result $ffmpegOk 'FFmpeg executable check'
 }
 
+$is64Bit = [Environment]::Is64BitOperatingSystem
+Write-Result $is64Bit '64-bit Windows runtime'
+
+$writeProbe = Join-Path $bundle ('.meihua-verify-{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
+$writable = $false
+try {
+  [IO.File]::WriteAllText($writeProbe, 'ok', [Text.Encoding]::UTF8)
+  $writable = Test-Path -LiteralPath $writeProbe
+} catch { $writable = $false } finally { Remove-Item -LiteralPath $writeProbe -Force -ErrorAction SilentlyContinue }
+Write-Result $writable 'Bundle directory is writable'
+
+$driveName = [IO.Path]::GetPathRoot($bundle).TrimEnd('\').TrimEnd(':')
+$drive = Get-PSDrive -Name $driveName -ErrorAction SilentlyContinue
+$freeGb = if ($drive) { [Math]::Round($drive.Free / 1GB, 1) } else { 0 }
+Write-Result ($freeGb -ge 1) 'Runtime free disk space' ("{0} GB free" -f $freeGb)
+
+$hashManifest = Join-Path $bundle 'installers\SHA256.txt'
+if (Test-Path -LiteralPath $hashManifest) {
+  foreach ($line in Get-Content -LiteralPath $hashManifest) {
+    if (-not $line.Trim()) { continue }
+    $parts = $line -split '\s{2,}', 2
+    if ($parts.Count -ne 2) { Write-Result $false 'Installer checksum manifest' "Invalid line: $line"; continue }
+    $installerPath = Join-Path $bundle ("installers\{0}" -f $parts[0])
+    $hashOk = (Test-Path -LiteralPath $installerPath) -and ((Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash -eq $parts[1].Trim())
+    Write-Result $hashOk ("Installer checksum: {0}" -f $parts[0])
+  }
+} else {
+  Write-Result $false 'Installer checksum manifest' 'installers\SHA256.txt'
+}
+
 $nvidiaSmi = Get-Command nvidia-smi.exe -ErrorAction SilentlyContinue
 if ($nvidiaSmi) {
   $gpuName = (& $nvidiaSmi.Source --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1)
@@ -168,7 +207,7 @@ $usedPorts = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
   Sort-Object LocalPort
 if ($usedPorts) {
   $portText = ($usedPorts.LocalPort | Select-Object -Unique) -join ', '
-  Write-Host ("[WARN] Required ports already in use: {0}. Close the previous MeihuaStudio instance before starting another one." -f $portText) -ForegroundColor Yellow
+  Write-Host ("[INFO] Runtime ports already in use: {0}. The launcher will reuse healthy MeihuaStudio services and reject unknown owners." -f $portText) -ForegroundColor Cyan
 } else {
   Write-Host '[OK]   Required ports are available' -ForegroundColor Green
 }

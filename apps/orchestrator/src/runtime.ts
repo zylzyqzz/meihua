@@ -1409,6 +1409,16 @@ export class LiveRuntime {
       this.acceptingQuestions = false;
     }
     this.tikfinity = new TikfinityLiveInputAdapter(this.settings.providers.liveInput.url);
+    // A controlled process restart must not forget that this same open LIVE
+    // session already received a valid TikFinity chat/gift/like event. A new
+    // session still has to prove its input normally.
+    const recentTikfinityEvent = openSession ? this.persistence.listLiveEventInbox(undefined, 1)[0] : undefined;
+    const openSessionStartedAt = openSession?.startedAt ?? 0;
+    if (openSession && recentTikfinityEvent?.source === 'tikfinity'
+      && recentTikfinityEvent.receivedAt >= openSessionStartedAt
+      && Date.now() - recentTikfinityEvent.receivedAt <= 6 * 60 * 60 * 1_000) {
+      this.tikfinity.restoreRecentVerification(recentTikfinityEvent.receivedAt);
+    }
     this.vtube = new VTubeStudioAdapter(
       this.settings.providers.avatar.url,
       readDpapiSecret(this.vtubeTokenPath),
@@ -2148,7 +2158,14 @@ export class LiveRuntime {
     const missingAssets = Object.values(this.publishedProfileVersion.profile.avatar.slots)
       .filter((slot) => slot.assetId && !this.persistence.getMediaAsset(slot.assetId)).length;
     const usingVtube = this.settings.providers.avatar.adapter === 'vtube-studio';
-    const missingObsSources = this.getObsSourceHealth().filter((source) => source.enabled && !source.connected);
+    const obsSourceHealth = this.getObsSourceHealth();
+    // Production uses one authoritative 1080x1920 stage source. Legacy
+    // per-module sources remain in old scene profiles for compatibility, but
+    // they must not block LIVE when the integrated stage is connected.
+    const integratedStage = obsSourceHealth.find((source) => source.sourceId === 'meihua-stage' && source.enabled);
+    const missingObsSources = integratedStage
+      ? integratedStage.connected ? [] : [integratedStage]
+      : obsSourceHealth.filter((source) => source.enabled && !source.connected);
     const mockQueueItems = mode === 'LIVE' ? this.getQueueOverview().filter((item) => item.eventSource === 'MOCK') : [];
     const tikfinityStatus = health.tikfinity?.verified ? 'PASS' as const : mode === 'LIVE' ? 'FAIL' as const : 'WARN' as const;
     const vtubeStatus = usingVtube && health.vtube?.authenticated && health.vtube?.model?.modelLoaded ? 'PASS' as const : 'WARN' as const;
@@ -2177,7 +2194,7 @@ export class LiveRuntime {
       { id: 'cuda-live', label: '实时 CUDA', status: liveCudaReady ? 'PASS' as const : 'FAIL' as const, message: liveCudaReady ? '实时数字人口型运行环境可用' : '当前为 CPU 慢速验证模式；实时直播必须识别到 NVIDIA CUDA' },
       { id: 'tikfinity', label: 'TikFinity', status: tikfinityStatus, message: health.tikfinity?.verified ? '已收到并验证合法真实事件' : mode === 'LIVE' ? '正式开播必须收到一条合法 TikFinity 事件' : '本地排练可不连接 TikFinity' },
       { id: 'native-audio', label: '本机语音播放路径', status: nativeAudioStatus, message: nativeAudioStatus === 'PASS' ? '后台将已生成 WAV 直接播放到 Windows 默认输出设备，不需要 OBS 音频浏览器源' : '当前主机不是 Windows，不能使用本机生产播放路径' },
-      { id: 'obs-sources', label: 'OBS 画面来源', status: missingObsSources.length ? (mode === 'LIVE' ? 'FAIL' as const : 'WARN' as const) : 'PASS' as const, message: missingObsSources.length ? `未连接：${missingObsSources.map((source) => source.sourceId).join('、')}` : '所有已启用 OBS 浏览器来源均已连接' },
+      { id: 'obs-sources', label: 'OBS 画面来源', status: missingObsSources.length ? (mode === 'LIVE' ? 'FAIL' as const : 'WARN' as const) : 'PASS' as const, message: missingObsSources.length ? `未连接：${missingObsSources.map((source) => source.sourceId).join('、')}` : integratedStage ? 'OBS 统一正式画面 meihua-stage 已连接' : '所有已启用 OBS 浏览器来源均已连接' },
       { id: 'data-provenance', label: '正式队列来源', status: mockQueueItems.length ? 'FAIL' as const : 'PASS' as const, message: mockQueueItems.length ? `仍有 ${mockQueueItems.length} 条 MOCK 模拟资格或任务；清理或归档后才能正式开播` : '当前队列中没有模拟事件残留' },
       { id: 'vtube', label: '数字人动作（可选）', status: vtubeStatus, message: vtubeStatus === 'PASS' ? `模型已连接：${health.vtube?.model?.modelName ?? '已加载模型'}；仅触发阶段动作，不驱动口型` : '不阻止开播；可使用遮口人物、预录人物，或稍后连接 VTube Studio 阶段动作' },
       { id: 'avatar-assets', label: '预录人物回退', status: Object.values(this.publishedProfileVersion.profile.avatar.slots).some((slot) => slot.assetId) ? 'PASS' as const : 'WARN' as const, message: Object.values(this.publishedProfileVersion.profile.avatar.slots).some((slot) => slot.assetId) ? '预录人物回退已配置' : '没有预录人物回退素材；VTube Studio 直连时不影响正式人物画面' },
@@ -2233,7 +2250,7 @@ export class LiveRuntime {
 
   resumeSession(): { ok: boolean; session?: LiveSession; reason?: string } {
     if (!this.currentSession || this.currentSession.status !== 'PAUSED') return { ok: false, session: this.currentSession, reason: '当前没有已暂停的直播场次。' };
-    this.currentSession = { ...this.currentSession, status: 'LIVE', lastHeartbeatAt: Date.now() };
+    this.currentSession = { ...this.currentSession, status: 'LIVE', lastHeartbeatAt: Date.now(), endReason: undefined };
     this.persistence.saveLiveSession(this.currentSession);
     this.acceptingQuestions = true;
     this.autoProcessing = true;
@@ -5497,6 +5514,13 @@ export class LiveRuntime {
   }
 
   resume(): { ok: boolean; reason?: string } {
+    // Keep the legacy auto-processing endpoint compatible with the V2 live
+    // session controls. Otherwise it reports success while the session remains
+    // PAUSED and intake still rejects every real event.
+    if (this.currentSession?.status === 'PAUSED') {
+      const resumed = this.resumeSession();
+      return { ok: resumed.ok, reason: resumed.reason };
+    }
     // V7.2: LLM 失败已自动回退本地模板，内容层不再阻塞开播自动处理；
     // 语音（TTS）仍是硬性门槛——没有语音就没有直播口播。
     const unavailable = this.getHealth().providers.filter((provider) => provider.status !== 'READY' && provider.id !== 'openai-compatible');
