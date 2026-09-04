@@ -83,6 +83,29 @@ describe('orchestrator HTTP API', () => {
     expect(catalog.json()).toEqual([expect.objectContaining({ giftId: '5655', giftName: 'Rose', coinValue: 1, count: 2 })]);
   });
 
+  it('captures TikFinity room activity while idle without granting eligibility or queueing it later', async () => {
+    const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
+    const app = await createApp(runtime);
+    cleanups.push(async () => { await app.close(); runtime.close(); });
+    const internals = runtime as unknown as {
+      enqueueTikfinityEvent: (kind: 'chat' | 'gift' | 'like', event: Parameters<LiveRuntime['ingestLike']>[0] | Parameters<LiveRuntime['ingestGift']>[0] | Parameters<LiveRuntime['ingestTikfinityChat']>[0]) => Promise<void>;
+    };
+
+    await internals.enqueueTikfinityEvent('like', {
+      source: 'tikfinity', eventId: 'idle-like-1', userId: 'idle-user', username: 'IdleViewer',
+      likeCount: 100, timestamp: Date.now(), raw: { test: true },
+    });
+
+    const recent = await app.inject({ method: 'GET', url: '/api/live-events/recent?limit=5' });
+    expect(recent.json()).toEqual([expect.objectContaining({ kind: 'like', username: 'IdleViewer', likeCount: 100, status: 'DONE' })]);
+    expect(runtime.getPendingQualifications()).toHaveLength(0);
+    expect(runtime.getQueue()).toHaveLength(0);
+
+    runtime.startSession({ mode: 'REHEARSAL' });
+    expect(runtime.getPendingQualifications()).toHaveLength(0);
+    expect(runtime.getQueue()).toHaveLength(0);
+  });
+
   it('allows the browser Admin to persist settings across localhost ports', async () => {
     const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
     const app = await createApp(runtime);

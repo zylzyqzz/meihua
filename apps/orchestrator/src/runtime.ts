@@ -1406,9 +1406,9 @@ export class LiveRuntime {
       onLike: async (event) => { await this.ingestLike(event); },
     });
     // Keep the diagnostics socket connected before the operator presses Start.
-    // enqueueTikfinityEvent still refuses to persist or account for events
-    // outside a LIVE session, so connectivity can be proven without polluting
-    // the production queue.
+    // TikFinity events are always captured for the interaction monitor and gift
+    // catalog. Events received outside a LIVE session are completed without
+    // accounting, qualification or queue side effects.
     if (this.settings.providers.liveInput.adapter === 'tikfinity') this.startTikfinityInput();
     void this.processLiveInbox();
     this.persistence.recoverDigitalHumanJobs();
@@ -4855,22 +4855,25 @@ export class LiveRuntime {
   }
 
   private async enqueueTikfinityEvent(kind: LiveEventInboxItem['kind'], event: LiveChatEvent | LiveGiftEvent | LiveLikeEvent): Promise<void> {
-    // TikFinity keeps the room connection alive and may emit likes even while
-    // the console is idle.  Those events are useful for adapter diagnostics,
-    // but must not become durable work until a rehearsal/live session exists;
-    // otherwise an idle room can starve the API with synchronous SQLite work.
-    if (!this.liveIntakeOpen()) return;
     const item = this.persistence.enqueueLiveEvent({ source: 'tikfinity', eventId: event.eventId, kind, payload: event });
     if (!item) {
       this.persistence.recordEvent('TIKFINITY_INBOX_DUPLICATE', { kind, eventId: event.eventId });
       return;
     }
-    this.persistence.recordEvent('TIKFINITY_INBOX_RECEIVED', { id: item.id, kind, eventId: event.eventId });
+    const intakeOpen = this.liveIntakeOpen();
+    if (!intakeOpen) {
+      // The operator console promises that room activity remains visible before
+      // Start is pressed. Persist it, but finish it immediately so a later
+      // session can never replay idle-room activity into qualifications.
+      this.persistence.completeLiveEvent(item.id);
+    } else {
+      this.persistence.recordEvent('TIKFINITY_INBOX_RECEIVED', { id: item.id, kind, eventId: event.eventId });
+    }
     // Coalesce bursts of likes/comments.  The inbox is durable and the admin
     // console polls it, while queue changes still publish immediately from
     // their normal mutation path.
     this.scheduleLiveInboxSnapshot();
-    await this.processLiveInbox();
+    if (intakeOpen) await this.processLiveInbox();
   }
 
   private scheduleLiveInboxSnapshot(): void {
