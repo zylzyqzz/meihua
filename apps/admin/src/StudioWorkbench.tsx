@@ -79,7 +79,7 @@ type Props = {
   assets: MediaAsset[];
   giftRules: GiftRule[];
   stageStatus?: string;
-  /** When LIVE, keep the published OBS output isolated from this editable draft. */
+  /** When LIVE, mirror live data and automatically publish settled layout edits to OBS. */
   livePreview?: boolean;
   /** `true` reloads the published draft after an atomic publish; `false` only refreshes assets. */
   onReload: (replaceEditable?: boolean) => Promise<void>;
@@ -370,6 +370,9 @@ function StudioWorkbenchView({
   const pendingPreviewProfileRef = useRef<SceneProfile | undefined>(undefined);
   const previewRequestInFlightRef = useRef(false);
   const previewMountedRef = useRef(true);
+  const publishInFlightRef = useRef(false);
+  const autoPublishTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastAutoPublishAttemptRef = useRef<SceneProfile | undefined>(undefined);
   const notifyRef = useRef(notify);
   useEffect(() => {
     notifyRef.current = notify;
@@ -404,6 +407,7 @@ function StudioWorkbenchView({
       active = false;
       previewMountedRef.current = false;
       if (previewTimerRef.current) clearTimeout(previewTimerRef.current);
+      if (autoPublishTimerRef.current) clearTimeout(autoPublishTimerRef.current);
       if (sessionId)
         void adminRequest(`/api/preview-sessions/${sessionId}`, {
           method: "DELETE",
@@ -499,6 +503,19 @@ function StudioWorkbenchView({
     const index = next.layers.findIndex((layer) => layer.id === id);
     if (index < 0) return;
     next.layers[index] = { ...next.layers[index], ...patch } as SceneLayer;
+    const target = next.layers[index];
+    if (
+      patch.visible === true &&
+      target.kind === "MODULE" &&
+      (target.moduleId === "lux3d" || target.moduleId === "hexagram")
+    ) {
+      const conflictingModule = target.moduleId === "lux3d" ? "hexagram" : "lux3d";
+      next.layers = next.layers.map((layer) =>
+        layer.kind === "MODULE" && layer.moduleId === conflictingModule
+          ? { ...layer, visible: false }
+          : layer,
+      );
+    }
     applyComposition(next, record);
   };
 
@@ -534,23 +551,34 @@ function StudioWorkbenchView({
       (layer) => layer.kind === "MODULE" && layer.moduleId === moduleId,
     );
     if (!existing) return;
-    patchLayer(existing.id, { visible: true }, true);
-    if (moduleId !== "lux3d") {
-      const source = workingProfile.sources[moduleId];
-      updateProfile({
-        ...workingProfile,
-        sources: {
-          ...workingProfile.sources,
-          [moduleId]: { ...source, enabled: true },
-        },
-        composition: {
-          ...composition,
-          layers: composition.layers.map((layer) =>
-            layer.id === existing.id ? { ...layer, visible: true } : layer,
-          ),
-        },
-      });
-    }
+    const conflictingModule =
+      moduleId === "lux3d" ? "hexagram" : moduleId === "hexagram" ? "lux3d" : undefined;
+    const source =
+      moduleId === "lux3d"
+        ? undefined
+        : workingProfile.sources[moduleId as ObsSourceId];
+    updateProfile({
+      ...workingProfile,
+      sources:
+        moduleId === "lux3d"
+          ? workingProfile.sources
+          : {
+              ...workingProfile.sources,
+              [moduleId as ObsSourceId]: { ...source, enabled: true },
+            },
+      composition: {
+        ...composition,
+        layers: composition.layers.map((layer) => {
+          if (layer.id === existing.id) return { ...layer, visible: true };
+          if (
+            conflictingModule &&
+            layer.kind === "MODULE" &&
+            layer.moduleId === conflictingModule
+          ) return { ...layer, visible: false };
+          return layer;
+        }),
+      },
+    });
     setSelectedId(existing.id);
     setAddOpen(false);
   };
@@ -706,7 +734,9 @@ function StudioWorkbenchView({
     if (drag?.latest) patchTransform(drag.layerId, drag.latest, false);
   };
 
-  const publish = async (): Promise<boolean> => {
+  const publish = async (silent = false): Promise<boolean> => {
+    if (publishInFlightRef.current) return false;
+    publishInFlightRef.current = true;
     setSaveState("PUBLISHING");
     try {
       await adminRequest("/api/scene-profile/publish", {
@@ -715,14 +745,33 @@ function StudioWorkbenchView({
       });
       await onReload();
       setSaveState("SAVED");
-      notify("已发布到 OBS，正式舞台已无感切换");
+      if (!silent) notify("已发布到 OBS，正式舞台已无感切换");
       return true;
     } catch (error) {
       setSaveState("DIRTY");
       notify(error instanceof Error ? error.message : "发布失败");
       return false;
+    } finally {
+      publishInFlightRef.current = false;
     }
   };
+
+  useEffect(() => {
+    if (
+      !livePreview ||
+      saveState !== "DIRTY" ||
+      lastAutoPublishAttemptRef.current === workingProfile
+    ) return;
+    if (autoPublishTimerRef.current) clearTimeout(autoPublishTimerRef.current);
+    autoPublishTimerRef.current = setTimeout(() => {
+      autoPublishTimerRef.current = undefined;
+      lastAutoPublishAttemptRef.current = workingProfile;
+      void publish(true);
+    }, 900);
+    return () => {
+      if (autoPublishTimerRef.current) clearTimeout(autoPublishTimerRef.current);
+    };
+  }, [draft.version, livePreview, saveState, workingProfile]);
 
   const publishAndCopyStageUrl = async () => {
     const published = await publish();
@@ -1004,7 +1053,9 @@ function StudioWorkbenchView({
             <b>
               {livePreview
                 ? saveState === "DIRTY"
-                  ? "正在预览未发布布局 · OBS 仍使用已发布版本"
+                  ? "布局已修改 · 正在自动同步到 OBS"
+                  : saveState === "PUBLISHING"
+                    ? "正在发布 · OBS 即将切换到当前布局"
                   : "布局与实时数据均来自当前 OBS 版本"
                 : "安全区 1080 × 1920"}
             </b>

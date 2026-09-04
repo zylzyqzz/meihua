@@ -4,7 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, unlinkSync
 import { basename, dirname, extname, join } from 'node:path';
 import type { WebSocket } from 'ws';
 import { BaiduCloudAvatarAdapter, CloudAvatarProviderAdapter, CloudVoiceCloneAdapter, ElevenLabsTtsAdapter, ElevenLabsVoiceClient, GptSoVitsTtsAdapter, KokoroTtsAdapter, LocalLiveInputAdapter, LocalMockAvatarProviderAdapter, LocalVrmAvatarAdapter, MuseTalkAvatarAdapter, OpenAICompatibleTtsAdapter, TikfinityLiveInputAdapter, VTubeStudioAdapter, VoiceAccentTtsAdapter, WindowsNativeAudioPlayer, WindowsTtsAdapter, buildLipSyncPlan, providerHealth, type AvatarAction, type AvatarProviderAdapter, type NativeAudioPlayer, type TtsAdapter } from '@meihua/adapters';
-import { assertAnswerLengthTarget, assertValidAnswerContent, countSpeechUnits, OpenAICompatibleAnswerComposer, RuleBasedAnswerComposer, withAnswerLengthMetrics, type AnswerComposer } from '@meihua/answer-composer';
+import { assertAnswerLengthTarget, assertNoGenericAnswerContent, assertValidAnswerContent, countSpeechUnits, OpenAICompatibleAnswerComposer, RuleBasedAnswerComposer, withAnswerLengthMetrics, type AnswerComposer } from '@meihua/answer-composer';
 import type {
   AppSettings,
   AppSettingsPatch,
@@ -1052,6 +1052,27 @@ function wavDurationMs(value: Buffer): number | undefined {
   return bytesPerSecond > 0 && dataSize > 0 ? Math.round((dataSize / bytesPerSecond) * 1_000) : undefined;
 }
 
+function retimeLocalWav(filePath: string, targetMs: number): number | undefined {
+  const ffmpeg = bundledFfmpegPath();
+  if (!ffmpeg || !existsSync(filePath)) return undefined;
+  const actualMs = wavDurationMs(readFileSync(filePath));
+  if (!actualMs || targetMs <= 0) return undefined;
+  const tempo = actualMs / targetMs;
+  if (tempo < 0.5 || tempo > 2) return undefined;
+  const temporaryPath = `${filePath}.retime.wav`;
+  const result = spawnSync(ffmpeg, [
+    '-y', '-hide_banner', '-loglevel', 'error', '-i', filePath,
+    '-filter:a', `atempo=${tempo.toFixed(6)}`, '-c:a', 'pcm_s16le', temporaryPath,
+  ], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+  if (result.error || result.status !== 0 || !existsSync(temporaryPath)) {
+    try { unlinkSync(temporaryPath); } catch { /* best effort */ }
+    return undefined;
+  }
+  copyFileSync(temporaryPath, filePath);
+  unlinkSync(temporaryPath);
+  return wavDurationMs(readFileSync(filePath));
+}
+
 function validateVrmModel(path: string): { version: '0.x' | '1.x'; hasBlink: boolean; hasMouth: boolean } {
   const value = readFileSync(path);
   if (value.length < 20 || value.toString('ascii', 0, 4) !== 'glTF' || value.readUInt32LE(4) !== 2) {
@@ -1172,6 +1193,7 @@ export class LiveRuntime {
   private draftProfileVersion: SceneProfileVersion;
   private readonly previewSessions = new Map<string, PreviewSession>();
   private readonly previewClients = new Map<string, Set<WebSocket>>();
+  private previewBroadcastTimer?: NodeJS.Timeout;
   private digitalHumanPresets: DigitalHumanPreset[] = [];
   private readonly avatarRenderJobs = new Map<string, AvatarRenderJob>();
   private readonly digitalHumanJobRunners = new Map<string, Promise<void>>();
@@ -1442,6 +1464,7 @@ export class LiveRuntime {
     clearInterval(this.maintenanceTimer);
     if (this.giftAlertTimer) clearTimeout(this.giftAlertTimer);
     if (this.liveInboxSnapshotTimer) clearTimeout(this.liveInboxSnapshotTimer);
+    if (this.previewBroadcastTimer) clearTimeout(this.previewBroadcastTimer);
     for (const timer of this.sideCueTimers.values()) clearTimeout(timer);
     for (const timer of this.pipelineRetryTimers.values()) clearTimeout(timer);
     this.sideCueTimers.clear();
@@ -1772,6 +1795,10 @@ export class LiveRuntime {
       baseUrl: this.settings.providers.tts.kokoro.baseUrl,
       defaultVoice: this.settings.providers.tts.kokoro.defaultVoice,
       outputDirectory: this.audioDirectory,
+      // The bundled CPU model can need more than two minutes for a dense
+      // 30-second script. Let the first request finish instead of aborting it
+      // and immediately queueing duplicate work in the single Kokoro worker.
+      timeoutMs: 180_000,
     });
     if (this.settings.providers.tts.adapter === 'windows') return this.windowsTts;
     if (this.settings.providers.tts.adapter === 'elevenlabs') return new ElevenLabsTtsAdapter({
@@ -4329,7 +4356,12 @@ export class LiveRuntime {
     const scenarioStage: DirectorStage = mirrorLiveDirector
       ? base.stage
       : preview.scenario === 'GIFT' ? 'QUALIFIED' : preview.scenario === 'QUEUE' ? 'IDLE' : preview.scenario;
-    const recent = this.persistence.listReadings({ limit: 100 }).find((item) => item.meihua && item.answer);
+    // A live workbench preview already uses the active director reading. Do
+    // not scan and deserialize historical rows on every synthesis progress
+    // update; this query used to stall the API once the production DB grew.
+    const recent = mirrorLiveDirector
+      ? undefined
+      : this.persistence.listReadings({ limit: 30 }).find((item) => item.meihua && item.answer);
     const now = Date.now();
     const sampleReading: Reading = recent ?? {
       id: `preview-${id}`, source: 'manual', username: '示例观众', rawQuestion: '这个计划现在适合继续推进吗？',
@@ -5938,6 +5970,7 @@ export class LiveRuntime {
       }));
       if (controller.signal.aborted) throw new PipelineAbortedError();
       assertValidAnswerContent(answer);
+      assertNoGenericAnswerContent(answer);
       assertAnswerLengthTarget(answer, contentLanguage, targetSeconds, lockedVoice.speed);
       answer = withAnswerLengthMetrics(answer, contentLanguage, targetSeconds, lockedVoice.speed);
       this.persistence.recordEvent('ANSWER_COMPOSITION_FINISHED', {
@@ -5994,7 +6027,7 @@ export class LiveRuntime {
             ttsProgressActive = false;
             clearInterval(ttsProgressTimer);
           }
-        }, 2_500);
+        }, 15_000);
         tts = await this.synthesizeWithFallback(readingId, `${answer.opening}${answer.speech}${answer.closing}`, targetSeconds, lockedVoice)
           .catch((error) => {
             this.persistence.recordEvent('TTS_SYNTHESIS_FAILED', { message: error instanceof Error ? error.message : 'unknown', elapsedMs: Date.now() - ttsStartedAt }, readingId);
@@ -6221,7 +6254,15 @@ export class LiveRuntime {
       targetLocale: selection.targetLocale, targetCountry: selection.targetCountry,
       accentProfileId: selection.accentProfileId, sourceLanguage: selection.sourceLanguage, targetSeconds,
     };
-    const first = await this.withRetry('TTS_PRIMARY', readingId, () => this.runGpuTask('VOICE_SYNTHESIS', () => adapter.synthesize(input)));
+    const synthesize = () => this.runGpuTask('VOICE_SYNTHESIS', () => adapter.synthesize(input));
+    // A timed-out HTTP request does not stop the native ONNX inference that is
+    // already running in Kokoro. Retrying immediately therefore stacks the
+    // same 30-second script behind itself and makes the UI appear frozen for
+    // many minutes. Kokoro gets one bounded attempt; the pipeline-level retry
+    // remains available after the service has genuinely failed.
+    const first = adapter.id === 'kokoro-tts'
+      ? await synthesize()
+      : await this.withRetry('TTS_PRIMARY', readingId, synthesize);
     const targetMs = Math.max(3_000, targetSeconds * 1_000);
     // Production acceptance allows a natural-speech window of ±15%.
     // Tighter limits make local engines chase tiny cadence differences and
@@ -6244,6 +6285,26 @@ export class LiveRuntime {
     if (Math.abs(firstErrorMs) <= toleranceMs) {
       this.persistence.recordSyncMetric('TTS_DURATION_MEASURED', { readingId, targetMs, actualMs: first.durationMs, errorMs: firstErrorMs, speed: input.speed, targetMet: true }, this.currentSession?.sessionId);
       return withDurationQuality(first, input.speed);
+    }
+
+    // Kokoro ONNX inference is the expensive operation. Correct its finished
+    // WAV with a local tempo pass instead of synthesizing the same narration
+    // up to two more times. This keeps the requested duration contract without
+    // freezing the workbench for several minutes on CPU-only machines.
+    if (adapter.id === 'kokoro-tts') {
+      if (!first.audioPath) throw new Error('KOKORO_OUTPUT_PATH_MISSING');
+      const audioPath = join(this.audioDirectory, basename(first.audioPath));
+      const correctedDurationMs = retimeLocalWav(audioPath, targetMs);
+      if (!correctedDurationMs || Math.abs(correctedDurationMs - targetMs) > toleranceMs) {
+        throw new Error(`TTS_DURATION_TARGET_NOT_MET:${correctedDurationMs ?? first.durationMs}:${targetMs}`);
+      }
+      const corrected = { ...first, durationMs: correctedDurationMs };
+      this.persistence.recordSyncMetric('TTS_DURATION_CORRECTED', {
+        readingId, targetMs, correction: 'LOCAL_WAV_TEMPO', previousDurationMs: first.durationMs,
+        correctedDurationMs, previousSpeed: input.speed, correctedSpeed: input.speed,
+        errorMs: correctedDurationMs - targetMs, targetMet: true,
+      }, this.currentSession?.sessionId);
+      return withDurationQuality(corrected, input.speed);
     }
 
     // Every supported TTS adapter receives speed. Previously only the
@@ -6604,9 +6665,20 @@ export class LiveRuntime {
     const message = this.createV2Message(type, payload);
     for (const socket of this.overlayClients) this.send(socket, message);
     for (const socket of this.adminClients) this.send(socket, message);
-    // Draft previews use their own profile, but live business data must move in
-    // lockstep with the formal OBS source instead of freezing at mount time.
-    for (const id of this.previewClients.keys()) this.broadcastPreview(id);
+    // Draft previews use their own profile, but live business data still needs
+    // to follow the formal OBS source. Coalesce bursts from pipeline progress
+    // into one snapshot so the workbench cannot make the synchronous SQLite
+    // read path monopolize the event loop.
+    if (type !== 'HEARTBEAT') this.schedulePreviewBroadcast();
+  }
+
+  private schedulePreviewBroadcast(): void {
+    if (this.closing || this.previewBroadcastTimer || this.previewClients.size === 0) return;
+    this.previewBroadcastTimer = setTimeout(() => {
+      this.previewBroadcastTimer = undefined;
+      if (this.closing) return;
+      for (const id of this.previewClients.keys()) this.broadcastPreview(id);
+    }, 250);
   }
 
   /** 后台专用 WS 通道：与 overlay 分离，不注册 SOURCE_HELLO，不影响来源健康统计。 */

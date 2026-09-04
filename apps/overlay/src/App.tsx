@@ -1671,9 +1671,6 @@ function Lux3DHexagramOverlay({
           <div className="lux3d-hex-card" key={key}>
             <span>{copy[key]}</span>
             <Hexagram lines={value.lines} />
-            <strong>
-              {formatHexagramDisplayName(value.number, value.name, "en")}
-            </strong>
           </div>
         );
       })}

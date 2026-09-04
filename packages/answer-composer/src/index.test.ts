@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { InvalidAnswerContentError, OpenAICompatibleAnswerComposer, RuleBasedAnswerComposer, assertValidAnswerContent, concludeReading, countSpeechUnits, estimateSpeechLengthTarget, formatHexagramDisplayName } from './index.js';
+import { InvalidAnswerContentError, OpenAICompatibleAnswerComposer, RuleBasedAnswerComposer, assertNoGenericAnswerContent, assertValidAnswerContent, concludeReading, countSpeechUnits, estimateSpeechLengthTarget, formatHexagramDisplayName } from './index.js';
 
 describe('answer schema guard', () => {
+  it('rejects the retired generic decision filler', () => {
+    expect(() => assertNoGenericAnswerContent({
+      opening: '', speech: 'For daily life, one clear decision at a time keeps things steady.',
+      keywords: [], closing: '', estimatedSeconds: 30,
+    })).toThrow('ANSWER_CONTAINS_FORBIDDEN_GENERIC_COPY');
+  });
+
   it('formats hexagram names for the selected broadcast language', () => {
     expect(formatHexagramDisplayName(3, '水雷屯', 'en')).toBe('Hexagram 3 · Difficulty at the Beginning');
     expect(formatHexagramDisplayName(3, '水雷屯', 'zh-CN')).toBe('第3卦 · 水雷屯');
@@ -194,6 +201,9 @@ describe('Layer-2 rule conclusion (concludeReading)', () => {
     expect(a.facts).toContain('乾为天 (1)');
     expect(a.facts.some((fact) => fact.startsWith('Moving line'))).toBe(true);
     expect(a.judgmentPoints).toHaveLength(3); // direction + category + timing
+    const life = concludeReading({ result: balance, language: 'en', category: 'LIFE' });
+    expect(life.category).toBeUndefined();
+    expect(life.judgmentPoints).toHaveLength(2);
   });
 
   it('maps every 体用 relation to its rule direction', () => {

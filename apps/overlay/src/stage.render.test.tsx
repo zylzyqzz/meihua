@@ -158,6 +158,31 @@ describe('integrated stage server render', () => {
     expect(html).not.toContain('<audio');
   });
 
+  it('suppresses the legacy standalone cast when the three-cast compass is visible', () => {
+    const snapshot = snapshotFor('SPEAKING');
+    snapshot.profileVersion.profile.composition = {
+      width: 1080,
+      height: 1920,
+      layers: [
+        {
+          id: 'legacy-hexagram', kind: 'MODULE', name: 'Legacy cast', moduleId: 'hexagram',
+          transform: { x: 180, y: 1380, width: 710, height: 370, rotation: 0 },
+          visible: true, locked: false, opacity: 1, zIndex: 110,
+        },
+        {
+          id: 'three-cast-compass', kind: 'MODULE', name: 'Three casts', moduleId: 'lux3d',
+          transform: { x: 320, y: 1380, width: 460, height: 370, rotation: 0 },
+          visible: true, locked: false, opacity: 1, zIndex: 100,
+        },
+      ],
+    };
+
+    const html = renderToString(<StageSource snapshot={snapshot} />);
+    expect((html.match(/class="hex-lines"/g) ?? [])).toHaveLength(3);
+    expect(html).not.toContain('class="stage-hexagram"');
+    expect(html).not.toContain('<strong>Hexagram');
+  });
+
   it('does not render a person layer in audio-only mode', () => {
     const snapshot = snapshotFor('SPEAKING');
     snapshot.presentationMode = 'AUDIO_ONLY';

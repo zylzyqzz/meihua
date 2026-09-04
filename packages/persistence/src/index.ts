@@ -533,6 +533,9 @@ export class SqlitePersistence {
     return Number(this.db.prepare(`
       UPDATE readings
       SET status = 'QUEUED', selected_at = NULL, completed_at = NULL,
+          answer_json = NULL, tts_audio_path = NULL, tts_duration_ms = NULL,
+          speech_plan_json = NULL, lip_sync_plan_json = NULL,
+          digital_human_json = NULL,
           error_code = 'PROCESS_RESTART_RECOVERED',
           error_message = 'Recovered after process restart and returned to the queue.'
       WHERE status = 'ABORTED' AND error_code = 'PROCESS_RESTART'

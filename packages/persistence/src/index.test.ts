@@ -54,6 +54,8 @@ describe('SqlitePersistence', () => {
       status: 'SPEAKING',
       priority: 'NORMAL',
       createdAt: 100,
+      answer: { opening: '', speech: 'Stale narration must not survive restart.', keywords: [], closing: '', estimatedSeconds: 30 },
+      tts: { audioPath: '/api/audio/stale.wav', durationMs: 30_000, providerId: 'test' },
       pipeline: {
         readingId: 'checkpoint-reading', phase: 'VOICE_READY', phaseLabel: '声音已生成', progress: 72,
         attempt: 1, maxAttempts: 3, stageStartedAt: 200, updatedAt: 300,
@@ -64,7 +66,7 @@ describe('SqlitePersistence', () => {
     expect(persistence.recoverInFlightReadings()).toBe(1);
     expect(persistence.requeueRestartedReadings()).toBe(1);
     expect(persistence.listQueued()).toEqual([expect.objectContaining({
-      id: 'checkpoint-reading', status: 'QUEUED', errorCode: 'PROCESS_RESTART_RECOVERED',
+      id: 'checkpoint-reading', status: 'QUEUED', errorCode: 'PROCESS_RESTART_RECOVERED', answer: undefined, tts: undefined,
     })]);
     persistence.close();
   });

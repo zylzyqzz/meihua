@@ -201,6 +201,13 @@ export function StageSource({ snapshot }: { snapshot: BroadcastSnapshotV2 }) {
   const mode = resolveBackgroundMode(config).toLocaleLowerCase();
   // 视口自适应：无论浏览器窗口多大，整个舞台始终完整可见；OBS 1080×1920 下原生 1:1 不缩放。
   const [fit, setFit] = useState(1);
+  const visibleLayers = composition?.layers.filter((layer) => layer.visible) ?? [];
+  const hasLux3d = visibleLayers.some(
+    (layer) => layer.kind === 'MODULE' && layer.moduleId === 'lux3d',
+  );
+  const renderLayers = visibleLayers.filter(
+    (layer) => !(hasLux3d && layer.kind === 'MODULE' && layer.moduleId === 'hexagram'),
+  );
   useEffect(() => {
     const resize = () => setFit(Math.min(window.innerWidth / 1080, window.innerHeight / 1920));
     resize();
@@ -210,7 +217,7 @@ export function StageSource({ snapshot }: { snapshot: BroadcastSnapshotV2 }) {
   return <main className={`source-root stage-root background-${mode} effect-smooth`} style={{ ...sourceStyle(config), width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
     <div style={{ width: 1080, height: 1920, position: 'absolute', left: '50%', top: '50%', transform: `translate(-50%, -50%) scale(${fit})`, transformOrigin: 'center center' }}>
       {composition ? <>
-        {composition.layers.filter((layer) => layer.visible).sort((a, b) => a.zIndex - b.zIndex).map((layer) => <div key={layer.id} className={`stage-composition-layer layer-${layer.kind.toLocaleLowerCase()}`} style={{ left: layer.transform.x, top: layer.transform.y, width: layer.transform.width, height: layer.transform.height, opacity: layer.opacity, zIndex: layer.zIndex, transform: `rotate(${layer.transform.rotation}deg)` }}><StageLayerContent layer={layer} snapshot={snapshot} /></div>)}
+        {renderLayers.sort((a, b) => a.zIndex - b.zIndex).map((layer) => <div key={layer.id} className={`stage-composition-layer layer-${layer.kind.toLocaleLowerCase()}`} style={{ left: layer.transform.x, top: layer.transform.y, width: layer.transform.width, height: layer.transform.height, opacity: layer.opacity, zIndex: layer.zIndex, transform: `rotate(${layer.transform.rotation}deg)` }}><StageLayerContent layer={layer} snapshot={snapshot} /></div>)}
       </> : <>
         <StageBackground snapshot={snapshot} config={config} />
         <header className="stage-status"><div className="stage-brand"><i className={live ? 'is-live' : ''} /><b>{copy.brand}</b><span>{stageText}</span></div><div className="stage-now">{snapshot.reading ? <><b>@{snapshot.reading.username}</b><span>{currentQuestion}</span></> : <span>{copy.idleHint}</span>}</div></header>

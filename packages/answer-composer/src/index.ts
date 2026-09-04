@@ -83,6 +83,21 @@ export function countSpeechUnits(text: string, language: ContentLanguage): numbe
   return text.normalize('NFKC').trim().split(/\s+/u).filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
 }
 
+const forbiddenGenericSpeech = [
+  /for daily life,? one clear decision at a time keeps things steady/i,
+  /one clear decision at a time keeps things steady/i,
+  /一次(?:做)?一个明确的决定可以让事情稳定下来/,
+  /一次一个清晰的决策就能稳住节奏/,
+];
+
+/** Production narration must not recycle the old category-level filler. */
+export function assertNoGenericAnswerContent(answer: AnswerContent): void {
+  const spoken = `${answer.opening} ${answer.speech} ${answer.closing}`.replace(/\s+/g, ' ').trim();
+  if (forbiddenGenericSpeech.some((pattern) => pattern.test(spoken))) {
+    throw new InvalidAnswerContentError('ANSWER_CONTAINS_FORBIDDEN_GENERIC_COPY');
+  }
+}
+
 export interface AnswerLengthCheck {
   ok: boolean;
   actual: number;
@@ -314,7 +329,6 @@ const categoryPoint: Record<ContentLanguage, CategoryCopy> = {
     CAREER: 'For work and plans, the pattern favors pacing real results over quick promises.',
     RELATIONSHIP: 'For people and bonds, honest and unhurried contact beats forcing the talk.',
     STUDY: 'For learning, small consistent practice is what the pattern supports.',
-    LIFE: 'For daily life, one clear decision at a time keeps things steady.',
     FINANCE_GENERAL: 'For money moves, keep them small and checkable until the trend steadies.',
     OTHER: 'Keep the goal plain and the steps verifiable.',
     RISK: 'With risk involved, stay small, stay slow, and confirm every step.',
@@ -323,7 +337,6 @@ const categoryPoint: Record<ContentLanguage, CategoryCopy> = {
     CAREER: '关于事业与计划，先落一个可验证的小步骤，比急着下结论更稳。',
     RELATIONSHIP: '关于感情与沟通，坦诚而从容的接触比强行摊牌更顺。',
     STUDY: '关于学业，持续的小练习是卦象支持的路径。',
-    LIFE: '关于日常生活，一次一个清晰的决策就能稳住节奏。',
     FINANCE_GENERAL: '关于钱财，保持小额、可检查，等趋势稳住再加码。',
     OTHER: '把目标放简单，把步骤做可验证。',
     RISK: '涉及风险时，步子要小、要慢，每一步都确认。',
@@ -332,7 +345,6 @@ const categoryPoint: Record<ContentLanguage, CategoryCopy> = {
     CAREER: 'Para trabajo y planes, el patrón favorece resultados comprobables antes que promesas rápidas.',
     RELATIONSHIP: 'Para personas y vínculos, el contacto honesto y sin prisa gana a forzar la conversación.',
     STUDY: 'Para el estudio, la práctica constante y pequeña es lo que sostiene el patrón.',
-    LIFE: 'Para la vida diaria, una decisión clara a la vez mantiene el ritmo.',
     FINANCE_GENERAL: 'Para el dinero, mantén montos pequeños y verificables hasta que la tendencia se asiente.',
     OTHER: 'Mantén la meta simple y los pasos verificables.',
     RISK: 'Con riesgo de por medio, pasos pequeños y lentos, confirmando cada uno.',
@@ -376,7 +388,11 @@ export function concludeReading(input: { result: MeihuaResult; language?: Conten
   ].filter(Boolean);
   const points: string[] = [];
   points.push(directionCopy[language][direction].sentence);
-  const category = input.category && categoryPoint[language][input.category] ? categoryPoint[language][input.category] : undefined;
+  // LIFE/OTHER are broad moderation buckets, not cast facts. Feeding their
+  // stock copy to the LLM made unrelated readings repeat the same sentence.
+  const category = input.category && !['LIFE', 'OTHER'].includes(input.category) && categoryPoint[language][input.category]
+    ? categoryPoint[language][input.category]
+    : undefined;
   if (category) points.push(category);
   points.push(timingCopy[language][timing === 'EARLY' ? 'early' : 'later']);
   const primaryNumber = input.result.primary.number;
@@ -786,6 +802,8 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
               '6. The combined opening + speech + closing MUST stay inside the supplied lengthTarget minimum and maximum (words or characters per unit); do not count punctuation.',
               '7. Set estimatedSeconds exactly to targetSeconds; the audio pipeline will use that value for the final duration.',
               '8. Return only a JSON object with exactly opening, speech, keywords, closing, and estimatedSeconds.',
+              '9. Tie the wording and action advice to the viewer\'s exact question while staying inside the conclusion facts. Do not use reusable category boilerplate or stock life-advice sentences.',
+              '10. The sentence "one clear decision at a time keeps things steady" and close paraphrases are forbidden.',
             ].join('\n'),
           },
           {
@@ -808,6 +826,7 @@ export class OpenAICompatibleAnswerComposer implements AnswerComposer {
       input.speechRate,
     );
     assertValidAnswerContent(answer);
+    assertNoGenericAnswerContent(answer);
     const lengthCheck = validateAnswerLength(answer, language, targetSeconds, input.speechRate);
     if (!lengthCheck.ok) throw new InvalidAnswerContentError(lengthCheck.reason ?? 'LLM_RESPONSE_LENGTH_INVALID');
     if (!isDirectSpokenAnswer(answer, input, language)) throw new InvalidAnswerContentError('LLM_RESPONSE_NOT_DIRECT_CAST_INTERPRETATION');
