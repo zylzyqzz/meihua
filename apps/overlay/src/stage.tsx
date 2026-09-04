@@ -214,7 +214,7 @@ export function StageSource({ snapshot }: { snapshot: BroadcastSnapshotV2 }) {
     window.addEventListener('resize', resize);
     return () => window.removeEventListener('resize', resize);
   }, []);
-  return <main className={`source-root stage-root background-${mode} effect-smooth`} style={{ ...sourceStyle(config), width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
+  return <main className={`source-root stage-root stage-${stage.toLocaleLowerCase()} background-${mode} effect-smooth`} style={{ ...sourceStyle(config), width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
     <div style={{ width: 1080, height: 1920, position: 'absolute', left: '50%', top: '50%', transform: `translate(-50%, -50%) scale(${fit})`, transformOrigin: 'center center' }}>
       {composition ? <>
         {renderLayers.sort((a, b) => a.zIndex - b.zIndex).map((layer) => <div key={layer.id} className={`stage-composition-layer layer-${layer.kind.toLocaleLowerCase()}`} style={{ left: layer.transform.x, top: layer.transform.y, width: layer.transform.width, height: layer.transform.height, opacity: layer.opacity, zIndex: layer.zIndex, transform: `rotate(${layer.transform.rotation}deg)` }}><StageLayerContent layer={layer} snapshot={snapshot} /></div>)}

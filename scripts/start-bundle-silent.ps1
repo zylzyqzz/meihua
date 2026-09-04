@@ -52,8 +52,11 @@ function Require-BundleFile([string]$RelativePath, [string]$Label) {
 function Start-Hidden([string]$File, [string[]]$Arguments, [string]$WorkingDirectory, [string]$Name) {
   $stdout = Join-Path $logs "$Name.out.log"
   $stderr = Join-Path $logs "$Name.err.log"
-  Start-Process -FilePath $File -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory `
-    -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr | Out-Null
+  $process = Start-Process -FilePath $File -ArgumentList $Arguments -WorkingDirectory $WorkingDirectory `
+    -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+  if ($Name -eq 'kokoro-tts-service') {
+    try { $process.PriorityClass = 'AboveNormal' } catch { Write-Warning 'Unable to raise Kokoro process priority.' }
+  }
 }
 
 $env:MEIHUA_PROJECT_ROOT = Join-Path $bundle 'app'

@@ -1235,6 +1235,7 @@ export class LiveRuntime {
   private readonly gpuTaskCoordinator = new GpuTaskCoordinator();
   private syncMetrics: SyncMetrics = { activeAudioSources: 0 };
   private processingInbox = false;
+  private rankingBroadcastTimer?: NodeJS.Timeout;
   /**
    * TikFinity can emit likes/heartbeats in bursts.  A full overlay snapshot
    * is relatively expensive, so do not broadcast one for every inbox row.
@@ -1472,8 +1473,14 @@ export class LiveRuntime {
       this.broadcastV2('HEARTBEAT', { serverTime: now });
       this.sweepAudioLease(now);
     }, 15_000);
-    this.maintenanceTimer = setInterval(() => this.runMaintenance(), 24 * 60 * 60 * 1_000);
-    this.runMaintenance();
+    // Integrity checks and a 200+ MB backup are synchronous in node:sqlite.
+    // Running them in the constructor delayed all HTTP/static listeners and
+    // looked like a frozen workbench. Maintenance now runs only on the daily
+    // timer and never interrupts an active or recoverable live session.
+    this.maintenanceTimer = setInterval(() => {
+      if (!this.currentSession || this.currentSession.status === 'ENDED') this.runMaintenance();
+      else this.persistence.runMaintenanceRecord('DAILY_RETENTION_SKIPPED_LIVE', { sessionId: this.currentSession.sessionId, status: this.currentSession.status });
+    }, 24 * 60 * 60 * 1_000);
   }
 
   close(): void {
@@ -1485,6 +1492,7 @@ export class LiveRuntime {
     clearInterval(this.maintenanceTimer);
     if (this.giftAlertTimer) clearTimeout(this.giftAlertTimer);
     if (this.liveInboxSnapshotTimer) clearTimeout(this.liveInboxSnapshotTimer);
+    if (this.rankingBroadcastTimer) clearTimeout(this.rankingBroadcastTimer);
     if (this.previewBroadcastTimer) clearTimeout(this.previewBroadcastTimer);
     for (const timer of this.sideCueTimers.values()) clearTimeout(timer);
     for (const timer of this.pipelineRetryTimers.values()) clearTimeout(timer);
@@ -5061,7 +5069,10 @@ export class LiveRuntime {
       // session can never replay idle-room activity into qualifications.
       this.persistence.completeLiveEvent(item.id);
     } else {
-      this.persistence.recordEvent('TIKFINITY_INBOX_RECEIVED', { id: item.id, kind, eventId: event.eventId });
+      // Likes arrive in dense bursts. The durable inbox is already the raw
+      // audit trail, so duplicating every like into app_events only amplifies
+      // SQLite writes and can starve the HTTP server during a live session.
+      if (kind !== 'like') this.persistence.recordEvent('TIKFINITY_INBOX_RECEIVED', { id: item.id, kind, eventId: event.eventId });
     }
     // Coalesce bursts of likes/comments.  The inbox is durable and the admin
     // console polls it, while queue changes still publish immediately from
@@ -5081,8 +5092,12 @@ export class LiveRuntime {
   private async processLiveInbox(): Promise<void> {
     if (this.processingInbox || this.closing) return;
     this.processingInbox = true;
+    let processed = 0;
     try {
-      for (;;) {
+      // Bound each drain. A busy TikFinity room can continuously add likes;
+      // an unbounded microtask loop prevents Node from serving the admin UI,
+      // static files and WebSocket heartbeats even though the process is alive.
+      for (; processed < 40; processed += 1) {
         const item = this.persistence.claimNextLiveEvent();
         if (!item) break;
         try {
@@ -5099,6 +5114,10 @@ export class LiveRuntime {
     } finally {
       this.processingInbox = false;
     }
+    // Give sockets and HTTP requests a turn before taking the next batch.
+    // An empty follow-up costs one indexed lookup and avoids a race with an
+    // event that arrived while the previous batch was completing.
+    if (processed >= 40 && !this.closing) setImmediate(() => { void this.processLiveInbox(); });
   }
 
   async ingestTikfinityChat(event: LiveChatEvent): Promise<Reading | undefined> {
@@ -5191,7 +5210,10 @@ export class LiveRuntime {
     const total = previous + Math.max(0, Math.round(event.likeCount));
     this.likeTotals.set(key, total);
     this.addEngagementStats(event, Math.max(0, Math.round(event.likeCount)), 0);
-    this.persistence.recordEvent('LIKE_RECEIVED', { eventId: event.eventId, username: event.username, increment: event.likeCount, sessionTotal: total, roomTotal: event.totalLikeCount });
+    const auditUnit = Math.max(100, this.settings.engagement.likeUnit);
+    if (Math.floor(total / auditUnit) > Math.floor(previous / auditUnit)) {
+      this.persistence.recordEvent('LIKE_PROGRESS_RECORDED', { eventId: event.eventId, username: event.username, increment: event.likeCount, sessionTotal: total, roomTotal: event.totalLikeCount, auditUnit });
+    }
     if (!this.settings.engagement.enabled) return { granted: false, total };
     // 排队规则：点赞资格只在跨过阈值那一刻发一次；该观众已在队/测算中/冷却期内时不再叠加新资格
     const queuedUsernames = new Set(this.queue.list().map((item) => item.username.trim().toLocaleLowerCase()));
@@ -5485,10 +5507,19 @@ export class LiveRuntime {
       likePoints: this.settings.engagement.likePoints,
       commentPoints: this.settings.engagement.commentPoints,
     });
-    this.broadcastV2('RANKING_CHANGED', {
-      giftRanking: this.persistence.getSessionGiftRanking(this.currentSession.sessionId, this.settings.engagement.obsRankingLimit),
-      engagementRanking: this.persistence.getSessionEngagementRanking(this.currentSession.sessionId, this.settings.engagement.obsRankingLimit),
-    });
+    this.scheduleRankingBroadcast();
+  }
+
+  private scheduleRankingBroadcast(): void {
+    if (this.rankingBroadcastTimer || this.closing) return;
+    this.rankingBroadcastTimer = setTimeout(() => {
+      this.rankingBroadcastTimer = undefined;
+      if (this.closing || !this.currentSession || this.currentSession.status === 'ENDED') return;
+      this.broadcastV2('RANKING_CHANGED', {
+        giftRanking: this.persistence.getSessionGiftRanking(this.currentSession.sessionId, this.settings.engagement.obsRankingLimit),
+        engagementRanking: this.persistence.getSessionEngagementRanking(this.currentSession.sessionId, this.settings.engagement.obsRankingLimit),
+      });
+    }, 300);
   }
 
   resume(): { ok: boolean; reason?: string } {

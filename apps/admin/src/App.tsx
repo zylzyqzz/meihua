@@ -712,6 +712,29 @@ export function App() {
   }, [tab]);
 
   useEffect(() => {
+    if (tab !== 'obs') return;
+    // The workbench has a deliberately small bootstrap path. Do not wait for
+    // a live-dashboard refresh (health, queue, TikFinity history, preflight)
+    // that may already be in flight when the operator opens the editor.
+    let cancelled = false;
+    void Promise.all([
+      request<AppSettings>('/api/settings'),
+      request<DirectorState>('/api/director/state'),
+      request<SceneProfileVersion>('/api/scene-profile/draft'),
+      request<MediaAsset[]>('/api/media-assets'),
+    ]).then(([nextSettings, nextDirector, nextDraft, nextAssets]) => {
+      if (cancelled) return;
+      setSettings(nextSettings);
+      setDirector(nextDirector);
+      setDraft(nextDraft);
+      setAssets(arrayOrEmpty<MediaAsset>(nextAssets));
+    }).catch((error: unknown) => {
+      if (!cancelled) notify(error instanceof Error ? `画面工作台加载失败：${error.message}` : '画面工作台加载失败');
+    });
+    return () => { cancelled = true; };
+  }, [tab, notify]);
+
+  useEffect(() => {
     if (tab !== 'records') return;
     void Promise.all([
       request<Reading[]>('/api/readings?limit=80'),
@@ -1382,7 +1405,7 @@ export function App() {
 
   const studioConsole = <main className="admin-shell">
     <header className="topbar"><div className="brand-lockup"><div className="brand-mark"><SquaresFour weight="fill" /></div><div><p>MEIHUA LIVE CONTROL</p><h1>Studio Console</h1></div></div><div className="session-controls">{liveControls}</div><div className="top-metrics"><div><span>开播状态</span><strong className={session?.status === 'LIVE' ? 'live-text' : ''}>{session?.status === 'LIVE' ? 'LIVE' : session?.status ?? '未开播'}</strong></div><div><span>当前阶段</span><strong>{stage}</strong></div><div><span>正在连麦观众</span><strong>{active ? `@${active.username}` : '等待观众'}</strong></div><LiveClock /></div></header>
-    <aside className="sidebar"><nav className="side-nav">{tabs.map((item) => <button key={item.id} aria-label={`${item.label} ${item.note}`} title={item.label} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}><span className="nav-icon">{tabIcons[item.id]}</span><span><strong>{item.label}</strong><small>{item.note}</small></span></button>)}</nav><div className="sidebar-foot"><div className="operator"><UserCircle weight="fill" /><span><strong>梅花老师</strong><small>直播导演</small></span></div><div className="system-mini"><span><i className="status-dot" />中控运行中</span><small>已运行 {elapsed(health?.uptimeMs ?? 0)}</small></div></div></aside>
+    <aside className="sidebar"><nav className="side-nav">{tabs.map((item) => <button key={item.id} aria-label={`${item.label} ${item.note}`} title={item.label} className={tab === item.id ? 'active' : ''} onClick={() => { activeTabRef.current = item.id; setTab(item.id); }}><span className="nav-icon">{tabIcons[item.id]}</span><span><strong>{item.label}</strong><small>{item.note}</small></span></button>)}</nav><div className="sidebar-foot"><div className="operator"><UserCircle weight="fill" /><span><strong>梅花老师</strong><small>直播导演</small></span></div><div className="system-mini"><span><i className="status-dot" />中控运行中</span><small>已运行 {elapsed(health?.uptimeMs ?? 0)}</small></div></div></aside>
     <section className="workspace">{!wsConnected && <div className="notice ws-fallback-notice"><Lightning weight="fill" />实时推送已断开，已切换为兜底轮询（5 秒）</div>}{notice && <div className="notice"><CheckCircle weight="fill" />{notice}</div>}{tab === 'live' ? livePage : tab === 'avatar' ? avatarPage : tab === 'obs' ? obsPage : tab === 'simple' ? simplePage : tab === 'connect' ? connectPage : recordsPage}</section>
   </main>;
 

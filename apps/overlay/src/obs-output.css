@@ -64,30 +64,53 @@
 @keyframes hex-sheen { 0%, 55% { transform: translateX(-120%) } 85%, 100% { transform: translateX(120%) } }
 
 /* 爻线逐根生成：从中心向两侧展开，依次延迟 */
-.hex-line i { transform-origin: center; animation: line-grow .5s cubic-bezier(.2, 1.4, .3, 1) backwards; }
+.hex-line i { transform-origin: center; animation: line-grow .5s cubic-bezier(.16, 1, .3, 1) backwards; }
 .hex-line:nth-child(1) i { animation-delay: .05s } .hex-line:nth-child(2) i { animation-delay: .15s }
 .hex-line:nth-child(3) i { animation-delay: .25s } .hex-line:nth-child(4) i { animation-delay: .35s }
 .hex-line:nth-child(5) i { animation-delay: .45s } .hex-line:nth-child(6) i { animation-delay: .55s }
 @keyframes line-grow { from { transform: scaleX(0); opacity: 0 } to { transform: scaleX(1); opacity: 1 } }
 
 /* 动爻：橙色脉冲光柱 */
-.hex-line.moving i { animation: line-grow .5s cubic-bezier(.2,1.4,.3,1) backwards, moving-pulse 1.1s ease-in-out .7s infinite !important; }
+.hex-line.moving i { animation: line-grow .5s cubic-bezier(.16,1,.3,1) backwards, moving-pulse 1.1s ease-in-out .7s infinite !important; }
 @keyframes moving-pulse { 0%, 100% { box-shadow: 0 0 10px #ff7654 } 50% { box-shadow: 0 0 34px #ff9a75, 0 0 60px rgba(255,118,84,.5) } }
 
 /* 新卦象到来时三卡依次浮现 */
-.hexagrams > div { animation: hex-card-in .6s cubic-bezier(.2, 1.3, .3, 1) backwards; }
+.hexagrams > div { animation: hex-card-in .6s cubic-bezier(.16, 1, .3, 1) backwards; }
 .hexagrams > div:nth-child(2) { animation-delay: .12s }
 .hexagrams > div:nth-child(3) { animation-delay: .24s }
 @keyframes hex-card-in { from { opacity: 0; transform: translateY(26px) scale(.94) } to { opacity: 1; transform: none } }
 
 /* ── 排队名单模块：行滑入 + 待提问呼吸 ── */
-.queue > div { animation: queue-row-in .45s cubic-bezier(.2, 1.3, .3, 1) backwards; }
+.queue > div { animation: queue-row-in .45s cubic-bezier(.16, 1, .3, 1) backwards; }
 .queue > div:nth-child(2) { animation-delay: .06s } .queue > div:nth-child(3) { animation-delay: .12s }
 .queue > div:nth-child(4) { animation-delay: .18s } .queue > div:nth-child(5) { animation-delay: .24s }
 .queue > div:nth-child(6) { animation-delay: .30s }
 @keyframes queue-row-in { from { opacity: 0; transform: translateX(40px) } to { opacity: 1; transform: none } }
 .queue .queue-waiting_question b, .queue .queue-waiting-question b { animation: need-breathe 1.6s ease-in-out infinite; border-radius: 999px; padding: 3px 10px; }
 @keyframes need-breathe { 0%, 100% { box-shadow: 0 0 0 rgba(255,118,84,0) } 50% { box-shadow: 0 0 18px rgba(255,118,84,.65) } }
+
+/* OBS on older integrated GPUs falls back to a costly compositor for blurred
+   full-screen layers and several simultaneous infinite animations. Preserve
+   visible motion with one slow outer ring, but suspend decorative loops while
+   no narration is playing so local TTS and the control UI keep CPU time. */
+.stage-root:not(.stage-speaking) .stage-glow,
+.stage-root:not(.stage-speaking) .lux3d-aura {
+  display: none;
+}
+.stage-root:not(.stage-speaking) .lux3d-source::before,
+.stage-root:not(.stage-speaking) .lux3d-source::after,
+.stage-root:not(.stage-speaking) .lux3d-orbit,
+.stage-root:not(.stage-speaking) .sticker-media,
+.stage-root:not(.stage-speaking) .hexagrams > div::after,
+.stage-root:not(.stage-speaking) .hex-line.moving i,
+.stage-root:not(.stage-speaking) .queue .queue-waiting_question b,
+.stage-root:not(.stage-speaking) .queue .queue-waiting-question b {
+  animation: none !important;
+}
+.stage-root:not(.stage-speaking) .lux3d-outer-ring {
+  animation-duration: 36s !important;
+  box-shadow: none !important;
+}
 
 /* effect-minimal 一律关动画（保留既有约定） */
 .effect-minimal .hexagrams > div::after, .effect-minimal .sticker-media { animation: none !important; }
