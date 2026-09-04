@@ -839,6 +839,34 @@ export interface SessionEngagementRankingEntry {
   rank: number;
 }
 
+/** Preview/result for rebuilding operator-facing data from durable source records. */
+export interface OperationalDataRecalculationReport {
+  canApply: boolean;
+  applied: boolean;
+  sessionId?: string;
+  sessionStatus?: LiveSessionStatus;
+  range?: { from: number; to: number };
+  scanned: {
+    liveEvents: number;
+    chats: number;
+    likes: number;
+    gifts: number;
+    readings: number;
+  };
+  rebuilt: {
+    queueItems: number;
+    pendingQualifications: number;
+    engagementUsers: number;
+    giftUsers: number;
+  };
+  preserved: {
+    rawEvents: number;
+    completedReadings: number;
+  };
+  recalculatedAt: number;
+  blockingReason?: string;
+}
+
 export interface PreviewSession {
   previewSessionId: string;
   scenario: DirectorStage | 'GIFT' | 'QUEUE';

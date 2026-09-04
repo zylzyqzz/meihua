@@ -176,3 +176,60 @@ describe('LiveRuntime intake controls', () => {
     expect(runtime.getPendingQualifications()).toHaveLength(0);
   });
 });
+
+describe('operational data recalculation', () => {
+  it('rebuilds queue and rankings from durable session records without deleting source data', () => {
+    const persistence = new SqlitePersistence(':memory:');
+    const now = Date.now();
+    persistence.saveLiveSession({
+      sessionId: 'recalc-session', mode: 'LIVE', status: 'ENDED', profileVersionId: 'profile-v1',
+      startedAt: now - 1_000, endedAt: now, lastHeartbeatAt: now,
+    });
+    persistence.saveReading({
+      id: 'queued-reading', sessionId: 'recalc-session', sourceEventId: 'chat-1', source: 'tikfinity',
+      userId: 'viewer-1', username: 'ViewerOne', rawQuestion: 'Will my new project progress?',
+      normalizedQuestion: 'Will my new project progress?', moderationDecision: 'ALLOW',
+      status: 'QUEUED', priority: 'NORMAL', createdAt: now - 820, expiresAt: now + 60_000,
+    });
+    persistence.saveReading({
+      id: 'completed-reading', sessionId: 'recalc-session', sourceEventId: 'chat-2', source: 'tikfinity',
+      userId: 'viewer-2', username: 'ViewerTwo', rawQuestion: 'Should I make this change?',
+      normalizedQuestion: 'Should I make this change?', moderationDecision: 'ALLOW',
+      status: 'COMPLETED', priority: 'NORMAL', createdAt: now - 810, completedAt: now - 300,
+    });
+    const likeInbox = persistence.enqueueLiveEvent({
+      source: 'tikfinity', eventId: 'like-1', kind: 'like', receivedAt: now - 850,
+      payload: { source: 'tikfinity', eventId: 'like-1', userId: 'viewer-1', username: 'ViewerOne', likeCount: 100, timestamp: now - 850, raw: {} },
+    });
+    const giftInbox = persistence.enqueueLiveEvent({
+      source: 'tikfinity', eventId: 'gift-1', kind: 'gift', receivedAt: now - 840,
+      payload: { source: 'tikfinity', eventId: 'gift-1', userId: 'viewer-3', username: 'GiftViewer', giftId: '5655', giftName: 'Rose', repeatCount: 4, timestamp: now - 840, raw: {} },
+    });
+    persistence.completeLiveEvent(likeInbox!.id);
+    persistence.completeLiveEvent(giftInbox!.id);
+    persistence.setSessionEngagementStats({ sessionId: 'recalc-session', userKey: 'stale', username: 'Stale', likeCount: 999, validCommentCount: 0, points: 999 });
+
+    const runtime = new LiveRuntime(persistence);
+    runtimes.push(runtime);
+    const preview = runtime.getOperationalDataRecalculationPreview();
+    expect(preview).toMatchObject({
+      canApply: true,
+      applied: false,
+      scanned: { liveEvents: 2, likes: 1, gifts: 1, readings: 2 },
+      rebuilt: { queueItems: 1, engagementUsers: 2, giftUsers: 1 },
+      preserved: { rawEvents: 2, completedReadings: 1 },
+    });
+
+    const report = runtime.recalculateOperationalData();
+    expect(report).toMatchObject({ applied: true, rebuilt: { queueItems: 1 } });
+    expect(runtime.getQueue()).toEqual([expect.objectContaining({ readingId: 'queued-reading' })]);
+    expect(persistence.getSessionEngagementRanking('recalc-session')).not.toEqual(expect.arrayContaining([expect.objectContaining({ userKey: 'stale' })]));
+    expect(persistence.getSessionEngagementRanking('recalc-session')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userKey: 'viewer-1', likeCount: 100, validCommentCount: 1 }),
+      expect.objectContaining({ userKey: 'viewer-2', validCommentCount: 1 }),
+    ]));
+    expect(persistence.getSessionGiftRanking('recalc-session')).toEqual([expect.objectContaining({ userKey: 'viewer-3', giftCount: 4 })]);
+    expect(persistence.listLiveEventInboxByRange(now - 1_000, now)).toHaveLength(2);
+    expect(persistence.listReadingsForSession('recalc-session')).toHaveLength(2);
+  });
+});

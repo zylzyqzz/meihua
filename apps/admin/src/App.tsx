@@ -29,9 +29,10 @@ import { TimerIcon as Timer } from '@phosphor-icons/react/Timer';
 import { UserCircleIcon as UserCircle } from '@phosphor-icons/react/UserCircle';
 import { WarningCircleIcon as WarningCircle } from '@phosphor-icons/react/WarningCircle';
 import { WifiHighIcon as WifiHigh } from '@phosphor-icons/react/WifiHigh';
+import { XIcon as X } from '@phosphor-icons/react/X';
 import type {
   AppEvent, AppSettings, BroadcastSnapshotV2, DirectorCue, LiveSession, MediaAsset, MediaAssetKind,
-  ObsSourceConfig, ObsSourceId, ProviderSecretStatus, Reading, RuntimeHealth, SceneProfileVersion,
+  ObsSourceConfig, ObsSourceId, OperationalDataRecalculationReport, ProviderSecretStatus, Reading, RuntimeHealth, SceneProfileVersion,
   VoiceProfile, QueueOverviewEntry, SceneElement,
 } from '@meihua/core-types';
 import { resolveBackgroundMode } from '@meihua/core-types';
@@ -389,6 +390,8 @@ export function App() {
   const [captureHistory, setCaptureHistory] = useState<LiveCaptureItem[]>([]);
   const [interactionFilter, setInteractionFilter] = useState<InteractionFilter>('all');
   const [interactionResetAt, setInteractionResetAt] = useState(0);
+  const [recalculationPreview, setRecalculationPreview] = useState<OperationalDataRecalculationReport>();
+  const [recalculationOpen, setRecalculationOpen] = useState(false);
   const [pendingQualifications, setPendingQualifications] = useState<PendingQualification[]>([]);
   const [queueOverview, setQueueOverview] = useState<QueueOverviewEntry[]>([]);
   const [capturedGifts, setCapturedGifts] = useState<CapturedGift[]>([]);
@@ -637,6 +640,41 @@ export function App() {
       notify(error instanceof Error ? error.message : '重置队列失败');
     } finally { setBusy(''); }
   };
+
+  const openOperationalRecalculation = async () => {
+    setBusy('recalculation-preview');
+    try {
+      const preview = await request<OperationalDataRecalculationReport>('/api/operations/recalculate/preview');
+      setRecalculationPreview(preview);
+      setRecalculationOpen(true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法生成统一重新计算预览');
+    } finally { setBusy(''); }
+  };
+
+  const applyOperationalRecalculation = async () => {
+    setBusy('recalculate-data');
+    try {
+      const report = await request<OperationalDataRecalculationReport>('/api/operations/recalculate', { method: 'POST', body: '{}' });
+      setRecalculationPreview(report);
+      setInteractionResetAt(0);
+      setInteractionFilter('all');
+      await refresh(false);
+      setRecalculationOpen(false);
+      notify(`统一重新计算完成：恢复 ${report.rebuilt.queueItems} 条排队，重建 ${report.rebuilt.engagementUsers + report.rebuilt.giftUsers} 位观众统计`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '统一重新计算失败');
+    } finally { setBusy(''); }
+  };
+
+  useEffect(() => {
+    if (!recalculationOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && busy !== 'recalculate-data') setRecalculationOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [recalculationOpen, busy]);
 
   useEffect(() => {
     void refresh().catch((error) => notify(`中控连接失败：${error.message}`));
@@ -1149,6 +1187,7 @@ export function App() {
 
   const livePage = <section className="page dashboard-page">
     <div className="workspace-title"><div><span className="eyebrow">LIVE DIRECTOR DESK</span><h2>节目总控台</h2><p>一个任务驱动观众、卦象、语音、人物动作和全部 OBS 来源。</p></div><div className="workspace-status"><span className="status-dot" /><strong>{stageNames[stage] ?? stage}</strong><small>序列 {director?.snapshot.sequence ?? 0}</small></div></div>
+    <div className="data-recalculation-bar"><div><Database weight="duotone" /><span><b>直播数据总控</b><small>以直播间原始事件和已记录任务，统一重建队列、资格与统计</small></span></div><button className="recalculate-control" disabled={Boolean(busy)} onClick={() => void openOperationalRecalculation()}><ArrowCounterClockwise weight="bold" />{busy === 'recalculation-preview' ? '正在核对数据…' : '统一重新计算'}</button></div>
     <div className="dashboard-grid">
       <Panel title="节目监看" hint="当前任务的唯一真相源" className="program-monitor" action={<Pill status={session?.status ?? 'OFFLINE'} />}>
         <div className="monitor-stage">
@@ -1163,10 +1202,10 @@ export function App() {
       </Panel>
       <div className="right-rail">
         <Panel title="下一位" action={<span className="rail-tag">{queue[0] ? '待邀请' : '空闲'}</span>}><div className="next-viewer"><UserCircle weight="duotone" /><span><strong>{queue[0] ? `@${queue[0].username}` : '暂无下一位'}</strong><small>{queue[0] ? `${queue[0].giftName ? `礼物 · ${queue[0].giftName}` : '免费资格'} · 已等 ${elapsed(queue[0].waitingMs)}` : '新问题进入后自动排序'}</small></span></div></Panel>
-        <Panel title={`排队与待提问 (${queueOverview.length})`} className="queue-rail" action={<div className="panel-actions"><button className="snapshot-refresh" disabled={Boolean(busy)} onClick={() => void refreshQueueSnapshot()}><ArrowCounterClockwise />刷新</button><button className="snapshot-reset" disabled={Boolean(busy)} onClick={() => void resetQueueSnapshot()}>重置队列</button></div>}><div className="queue-list linkage-rail-list">{queueOverview.slice(0, 6).map((item) => <div key={item.id} className={item.status === 'WAITING_QUESTION' ? 'waiting-question' : 'queued-question'}><em>{item.status === 'QUEUED' ? item.position ?? '•' : '?'}</em><span><strong>@{item.username}</strong><small>{item.status === 'WAITING_QUESTION' ? `${item.eventSource} · 未提问 · ${item.giftName ?? item.label}` : `${item.eventSource} · 已提问 · ${item.question}`}</small></span><Pill status={item.status === 'WAITING_QUESTION' ? '未提问' : '排队中'} /></div>)}{!queueOverview.length && <div className="empty">暂无待提问或排队观众</div>}</div></Panel>
+        <Panel title={`排队与待提问 (${queueOverview.length})`} className="queue-rail" action={<div className="panel-actions"><button className="snapshot-refresh" disabled={Boolean(busy)} onClick={() => void refreshQueueSnapshot()}><ArrowCounterClockwise />刷新</button><button className="snapshot-reset" disabled={Boolean(busy)} onClick={() => void resetQueueSnapshot()}>清空队列</button></div>}><div className="queue-list linkage-rail-list">{queueOverview.slice(0, 6).map((item) => <div key={item.id} className={item.status === 'WAITING_QUESTION' ? 'waiting-question' : 'queued-question'}><em>{item.status === 'QUEUED' ? item.position ?? '•' : '?'}</em><span><strong>@{item.username}</strong><small>{item.status === 'WAITING_QUESTION' ? `${item.eventSource} · 未提问 · ${item.giftName ?? item.label}` : `${item.eventSource} · 已提问 · ${item.question}`}</small></span><Pill status={item.status === 'WAITING_QUESTION' ? '未提问' : '排队中'} /></div>)}{!queueOverview.length && <div className="empty">暂无待提问或排队观众</div>}</div></Panel>
         <Panel title={`待处理资格 (${pendingQualifications.filter((item) => item.kind !== 'COMMENT_KEYWORD').length})`} className="qualification-rail"><div className="qualification-list">{(['GIFT','LIKE'] as const).map((kind) => { const count = pendingQualifications.filter((item) => item.kind === kind).length; const Icon = kind === 'GIFT' ? Gift : Heart; return <div key={kind}><Icon weight="fill" /><span>{kind === 'GIFT' ? '礼物资格待提问' : '点赞资格待提问'}</span><strong>{count}</strong></div>; })}</div></Panel>
       </div>
-      <Panel title="实时互动" hint="默认实时查看全部事件；刷新替换当前快照，重置后从当前时刻重新计数" className="activity-panel" intakeNote={(!session || session.status === 'ENDED') ? '未开播：礼物、点赞和评论仅展示不入账；点击左上「立即开播」后才开始累计资格。' : undefined} action={<div className="activity-actions"><div className="filter-pills" role="tablist" aria-label="实时互动筛选">{([['all','全部'],['like','点赞'],['chat','评论'],['gift','礼物']] as const).map(([kind,label]) => <button key={kind} className={interactionFilter === kind ? 'active' : ''} onClick={() => setInteractionFilter(kind)}>{label}<b>{interactionCounts[kind]}</b></button>)}</div><button className="snapshot-refresh" disabled={Boolean(busy)} onClick={() => void refreshInteractionSnapshot()}><ArrowCounterClockwise />刷新</button><button className="snapshot-reset" disabled={Boolean(busy)} onClick={resetInteractionSnapshot}>重置统计</button></div>}><div className="capture-list">{visibleInteractions.slice(0, 12).map((sample) => <div key={sample.id} className={`capture-${sample.kind}`}><Pill status={sample.kind.toUpperCase()} /><time>{new Date(sample.receivedAt).toLocaleTimeString()}</time><span><strong>{sample.username ? `@${sample.username}` : '直播间事件'}</strong><small>{captureDescription(sample)}</small></span></div>)}{!visibleInteractions.length && <div className="empty">当前筛选中没有新的实时互动。</div>}</div></Panel>
+      <Panel title="实时互动" hint="刷新会读取最新记录；“从现在统计”只改变本页显示起点，不删除历史数据" className="activity-panel" intakeNote={(!session || session.status === 'ENDED') ? '未开播：礼物、点赞和评论仅展示不入账；点击左上「立即开播」后才开始累计资格。' : undefined} action={<div className="activity-actions"><div className="filter-pills" role="tablist" aria-label="实时互动筛选">{([['all','全部'],['like','点赞'],['chat','评论'],['gift','礼物']] as const).map(([kind,label]) => <button key={kind} className={interactionFilter === kind ? 'active' : ''} onClick={() => setInteractionFilter(kind)}>{label}<b>{interactionCounts[kind]}</b></button>)}</div><button className="snapshot-refresh" disabled={Boolean(busy)} onClick={() => void refreshInteractionSnapshot()}><ArrowCounterClockwise />刷新</button><button className="snapshot-reset" disabled={Boolean(busy)} onClick={resetInteractionSnapshot}>从现在统计</button></div>}><div className="capture-list">{visibleInteractions.slice(0, 12).map((sample) => <div key={sample.id} className={`capture-${sample.kind}`}><Pill status={sample.kind.toUpperCase()} /><time>{new Date(sample.receivedAt).toLocaleTimeString()}</time><span><strong>{sample.username ? `@${sample.username}` : '直播间事件'}</strong><small>{captureDescription(sample)}</small></span></div>)}{!visibleInteractions.length && <div className="empty">当前筛选中没有新的实时互动。</div>}</div></Panel>
       <Panel title="接入健康" hint="关键服务实时状态" className="health-panel" action={<Pill status={health?.input ?? 'UNKNOWN'} />}><div className="health-list"><div><WifiHigh /><span>OBS 浏览器源</span><strong>{health?.overlayClients ?? 0} 在线</strong></div><div><Radio /><span>TikFinity</span><strong>{health?.tikfinity?.status ?? health?.input ?? 'UNKNOWN'}</strong></div><div><SpeakerHigh /><span>语音输出</span><strong>{health?.tts ?? 'UNKNOWN'}</strong></div><div><Database /><span>内容引擎</span><strong>{health?.llm ?? 'UNKNOWN'}</strong></div></div></Panel>
       <Panel title="开播检查" hint="正式开播不可绕过" className="preflight-panel"><div className="preflight-compact">{preflight?.checks.slice(0, 6).map((check) => <div key={check.id} className={`check-${check.status.toLowerCase()}`}>{check.status === 'PASS' ? <CheckCircle weight="fill" /> : <WarningCircle weight="fill" />}<span><strong>{check.label}</strong><small>{check.message}</small></span></div>)}</div></Panel>
     </div>
@@ -1184,7 +1223,7 @@ export function App() {
       <Panel title="资格入口" hint="普通评论不会发放资格；关键词只帮助系统识别和清理已获得资格者的问题。" className="free-rules-panel"><div className="simple-rules"><label className="like-rule-field"><span><Heart weight="fill" />累计点赞资格</span><input type="number" min="1" value={firstLike?.threshold ?? 100} onChange={(event) => changeLikeThreshold(Number(event.target.value))} /><small>同一观众累计达到 {firstLike?.threshold ?? 100} 次后获得一次 {settings.reading.speechTargetSeconds} 秒测算资格。</small></label><div className="question-keyword-field"><header><span><ChatCircle weight="fill" /><b>问题识别关键词</b></span><button type="button" onClick={addRecommendedQuestionKeywords}>补齐推荐问法</button></header><textarea rows={5} aria-label="问题识别关键词" value={firstComment?.keywords.join('、') ?? ''} onChange={(event) => changeCommentKeywords(event.target.value)} /><div className="keyword-groups">{recommendedQuestionKeywordGroups.map((group) => <span key={group.label}><b>{group.label}</b><small>{group.values.slice(0, 5).join(' · ')}</small></span>)}</div><small>支持中文、英语、西语、法语、德语、日语、韩语、葡语和俄语。最终仍会经过问句结构、长度、广告和高风险主题校验。</small></div></div></Panel>
       <Panel title="排队策略" hint="四个数字控制所有资格和队列，不再出现界面 20 分钟、后台 30 分钟的冲突。" className="queue-policy-panel"><div className="policy-fields"><label><span><ListNumbers weight="fill" />画面显示人数</span><input type="number" min="1" max="12" value={settings.queue.maxVisible} onChange={(event) => setSettings({ ...settings, queue: { ...settings.queue, maxVisible: Math.max(1, Math.min(12, Number(event.target.value))) } })} /><small>OBS 排队名单显示前 {settings.queue.maxVisible} 位。</small></label><label><span><ListNumbers weight="fill" />队列总容量</span><input type="number" min="1" max="100" value={settings.queue.maxTotal} onChange={(event) => setSettings({ ...settings, queue: { ...settings.queue, maxTotal: Math.max(1, Math.min(100, Number(event.target.value))) } })} /><small>正式队列最多 {settings.queue.maxTotal} 位。</small></label><label><span><Timer weight="fill" />资格等待时限</span><input type="number" min="1" max="720" value={settings.queue.expireMinutes} onChange={(event) => changeQualificationExpiry(Number(event.target.value))} /><small>点赞、礼物和待提问资格统一为 {settings.queue.expireMinutes} 分钟。</small></label><label><span><SpeakerHigh weight="fill" />默认测算时长</span><select value={settings.reading.speechTargetSeconds} onChange={(event) => setSettings({ ...settings, reading: { ...settings.reading, speechTargetSeconds: Number(event.target.value) } })}>{speechDurationOptions.map((seconds) => <option key={seconds} value={seconds}>{seconds} 秒</option>)}</select><small>点赞资格默认生成 {settings.reading.speechTargetSeconds} 秒解读；礼物规则可单独设置。</small></label></div><div className="queue-flow"><b>自动执行顺序</b><span>{firstLike?.threshold ?? 100} 次点赞或指定礼物 → 提交明确问题 → 正式排队 → 后台预处理 → 播报</span><small>无资格聊天只进入互动记录，不占正式队列。</small></div></Panel>
     </div>
-    <Panel title={`资格与排队联动 · ${queueOverview.length}`} hint="礼物到账后先显示未提问；同一观众提交问题后自动转入正式队列。" className="linkage-panel" action={<div className="panel-actions"><button className="snapshot-refresh" disabled={Boolean(busy)} onClick={() => void refreshQueueSnapshot()}><ArrowCounterClockwise />刷新队列</button><button className="snapshot-reset" disabled={Boolean(busy)} onClick={() => void resetQueueSnapshot()}>重置队列</button>{!productionMode ? <button disabled={Boolean(busy)} onClick={() => void act('linkage-test', async () => { const report = await request<{ ok: boolean; username: string; afterGift?: QueueOverviewEntry; afterQuestion?: QueueOverviewEntry }>('/api/mock/linkage', { method: 'POST', body: '{}' }); setLinkageReport(report); return report; }, '礼物→提问→排队模拟已完成')}><Play weight="fill" />运行完整联动模拟</button> : <Pill status="LIVE ONLY" />}</div>}>
+    <Panel title={`资格与排队联动 · ${queueOverview.length}`} hint="礼物到账后先显示未提问；同一观众提交问题后自动转入正式队列。" className="linkage-panel" action={<div className="panel-actions"><button className="snapshot-refresh" disabled={Boolean(busy)} onClick={() => void refreshQueueSnapshot()}><ArrowCounterClockwise />刷新队列</button><button className="snapshot-reset" disabled={Boolean(busy)} onClick={() => void resetQueueSnapshot()}>清空队列</button>{!productionMode ? <button disabled={Boolean(busy)} onClick={() => void act('linkage-test', async () => { const report = await request<{ ok: boolean; username: string; afterGift?: QueueOverviewEntry; afterQuestion?: QueueOverviewEntry }>('/api/mock/linkage', { method: 'POST', body: '{}' }); setLinkageReport(report); return report; }, '礼物→提问→排队模拟已完成')}><Play weight="fill" />运行完整联动模拟</button> : <Pill status="LIVE ONLY" />}</div>}>
       <div className="linkage-queue-grid">
         <section><header><b>待提问</b><span>{queueOverview.filter((item) => item.status === 'WAITING_QUESTION').length}</span></header><div className="capture-list">{queueOverview.filter((item) => item.status === 'WAITING_QUESTION').slice(0, 10).map((item) => <div key={item.id}><Pill status="未提问" /><span><strong>@{item.username}</strong><small>{item.giftName ?? item.label} · {item.speechTargetSeconds} 秒权益</small></span><time>{item.expiresAt ? `${Math.max(1, Math.ceil((item.expiresAt - Date.now()) / 60_000))} 分钟` : '永久等待'}</time></div>)}{!queueOverview.some((item) => item.status === 'WAITING_QUESTION') && <div className="empty">没有等待问题的观众</div>}</div></section>
         <section><header><b>已提问 · 正式排队</b><span>{queueOverview.filter((item) => item.status === 'QUEUED').length}</span></header><div className="capture-list">{queueOverview.filter((item) => item.status === 'QUEUED').slice(0, 10).map((item) => <div key={item.id}><Pill status="已提问" /><span><strong>{item.position ? `${item.position}. ` : ''}@{item.username}</strong><small>{item.question} · {item.giftName ?? item.label}</small></span><time>{item.speechTargetSeconds} 秒</time></div>)}{!queueOverview.some((item) => item.status === 'QUEUED') && <div className="empty">正式队列为空</div>}</div></section>
@@ -1332,6 +1371,34 @@ export function App() {
   return <>
     {studioConsole}
     {authExpired && <div className="mw-auth-recovery"><div><b>中控服务已重启</b><p>安全令牌已更新，页面正在重新连接。若没有自动恢复，请手动刷新一次。</p><button onClick={() => window.location.reload()}>立即重新连接</button></div></div>}
+    {recalculationOpen && recalculationPreview && <div className="studio-modal-v5 operation-recalculation-modal" onMouseDown={(event) => { if (event.target === event.currentTarget && busy !== 'recalculate-data') setRecalculationOpen(false); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="recalculation-title">
+        <header>
+          <div><b id="recalculation-title">统一重新计算</b><small>以本场直播原始事件和已记录任务为唯一依据</small></div>
+          <button className="modal-close" aria-label="关闭统一重新计算窗口" disabled={busy === 'recalculate-data'} onClick={() => setRecalculationOpen(false)}><X weight="bold" /></button>
+        </header>
+        <div className="recalculation-body">
+          <div className="recalculation-intro"><Database weight="duotone" /><div><b>重建派生数据，不删除原始记录</b><p>系统将重新核对直播事件、排队任务、待提问资格、点赞统计和礼物榜单。已完成的解卦、直播原始事件、音频和素材全部保留。</p></div></div>
+          <div className="recalculation-session">
+            <span>计算场次</span><strong>{recalculationPreview.sessionId ? `${recalculationPreview.sessionId.slice(0, 8)}…` : '无可用场次'}</strong>
+            <span>场次状态</span><strong>{recalculationPreview.sessionStatus ?? '—'}</strong>
+            <span>数据范围</span><strong>{recalculationPreview.range ? `${new Date(recalculationPreview.range.from).toLocaleString()} 至 ${new Date(recalculationPreview.range.to).toLocaleString()}` : '—'}</strong>
+          </div>
+          <div className="recalculation-metrics" aria-label="重新计算影响预览">
+            <article><span>直播原始事件</span><b>{recalculationPreview.scanned.liveEvents}</b><small>评论 {recalculationPreview.scanned.chats} · 点赞 {recalculationPreview.scanned.likes} · 礼物 {recalculationPreview.scanned.gifts}</small></article>
+            <article><span>已记录任务</span><b>{recalculationPreview.scanned.readings}</b><small>保留已完成 {recalculationPreview.preserved.completedReadings} 条</small></article>
+            <article><span>恢复正式排队</span><b>{recalculationPreview.rebuilt.queueItems}</b><small>按数据库 QUEUED 状态重建</small></article>
+            <article><span>待提问资格</span><b>{recalculationPreview.rebuilt.pendingQualifications}</b><small>只保留尚未过期的资格</small></article>
+            <article><span>互动统计观众</span><b>{recalculationPreview.rebuilt.engagementUsers}</b><small>按当前点赞与评论积分规则</small></article>
+            <article><span>礼物榜观众</span><b>{recalculationPreview.rebuilt.giftUsers}</b><small>按当前启用的礼物规则</small></article>
+          </div>
+          {recalculationPreview.blockingReason
+            ? <div className="recalculation-blocked" role="alert"><WarningCircle weight="fill" /><span><b>现在不能执行</b><small>{recalculationPreview.blockingReason}</small></span></div>
+            : <div className="recalculation-safe"><CheckCircle weight="fill" /><span><b>可以安全执行</b><small>执行后中控台会立即刷新，直播历史和已完成解卦不会改变。</small></span></div>}
+        </div>
+        <footer className="recalculation-footer"><button disabled={busy === 'recalculate-data'} onClick={() => setRecalculationOpen(false)}>取消</button><button className="primary" disabled={!recalculationPreview.canApply || Boolean(busy)} onClick={() => void applyOperationalRecalculation()}><ArrowCounterClockwise weight="bold" />{busy === 'recalculate-data' ? '正在重新计算…' : '开始统一重新计算'}</button></footer>
+      </section>
+    </div>}
     {assetLibraryOpen && draft && source && <AssetLibraryModal
       assets={assets}
       sourceAssetId={source.backgroundAssetId}

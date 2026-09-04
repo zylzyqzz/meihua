@@ -508,6 +508,13 @@ export class SqlitePersistence {
     return (rows as ReadingRow[]).map((row) => this.toReading(row));
   }
 
+  listReadingsForSession(sessionId: string, limit = 10_000): Reading[] {
+    const safeLimit = Math.min(Math.max(limit, 1), 50_000);
+    return (this.db.prepare(`
+      SELECT * FROM readings WHERE session_id = ? ORDER BY created_at ASC LIMIT ?
+    `).all(sessionId, safeLimit) as ReadingRow[]).map((row) => this.toReading(row));
+  }
+
   recoverInFlightReadings(): number {
     const placeholders = inFlightStates.map(() => '?').join(', ');
     return Number(this.db.prepare(`
@@ -643,6 +650,55 @@ export class SqlitePersistence {
       ? this.db.prepare('SELECT * FROM live_event_inbox WHERE status = ? ORDER BY id ASC LIMIT ?').all(status, Math.min(Math.max(limit, 1), 500))
       : this.db.prepare('SELECT * FROM live_event_inbox ORDER BY id DESC LIMIT ?').all(Math.min(Math.max(limit, 1), 500));
     return (rows as LiveEventInboxRow[]).map((row) => this.toLiveEventInboxItem(row));
+  }
+
+  listLiveEventInboxByRange(from: number, to: number, limit = 50_000): LiveEventInboxItem[] {
+    const safeLimit = Math.min(Math.max(limit, 1), 50_000);
+    const rows = this.db.prepare(`
+      SELECT * FROM live_event_inbox
+      WHERE received_at >= ? AND received_at <= ? AND status = 'DONE'
+      ORDER BY id ASC LIMIT ?
+    `).all(from, to, safeLimit) as LiveEventInboxRow[];
+    return rows.map((row) => this.toLiveEventInboxItem(row));
+  }
+
+  replaceSessionDerivedStats(input: {
+    sessionId: string;
+    engagement: Array<{ userKey: string; username: string; likeCount: number; validCommentCount: number; points: number; reachedAt: number }>;
+    gifts: Array<{ userKey: string; username: string; points: number; giftCount: number; reachedAt: number }>;
+  }): void {
+    const now = Date.now();
+    const engagementInsert = this.db.prepare(`
+      INSERT INTO session_user_stats (
+        session_id, user_key, username, like_count, valid_comment_count, engagement_points, reached_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const giftInsert = this.db.prepare(`
+      INSERT INTO session_gift_stats (
+        session_id, user_key, username, points, gift_count, reached_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM session_user_stats WHERE session_id = ?').run(input.sessionId);
+      this.db.prepare('DELETE FROM session_gift_stats WHERE session_id = ?').run(input.sessionId);
+      for (const item of input.engagement) {
+        engagementInsert.run(
+          input.sessionId, item.userKey, item.username, item.likeCount,
+          item.validCommentCount, item.points, item.reachedAt, now,
+        );
+      }
+      for (const item of input.gifts) {
+        giftInsert.run(
+          input.sessionId, item.userKey, item.username, item.points,
+          item.giftCount, item.reachedAt, now,
+        );
+      }
+      this.db.exec('COMMIT');
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch { /* transaction was not opened */ }
+      throw error;
+    }
   }
 
   recordSyncMetric(type: string, payload: unknown, sessionId?: string): void {

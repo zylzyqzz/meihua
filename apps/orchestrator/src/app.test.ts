@@ -44,6 +44,19 @@ describe('orchestrator HTTP API', () => {
     expect((await app.inject({ method: 'GET', url: '/api/queue' })).json()).toEqual([]);
   });
 
+  it('previews unified recalculation and blocks execution when no durable live session exists', async () => {
+    const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
+    const app = await createApp(runtime);
+    cleanups.push(async () => { await app.close(); runtime.close(); });
+
+    const preview = await app.inject({ method: 'GET', url: '/api/operations/recalculate/preview' });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({ canApply: false, applied: false, blockingReason: '没有可用于重新计算的直播场次。' });
+    const apply = await app.inject({ method: 'POST', url: '/api/operations/recalculate' });
+    expect(apply.statusCode).toBe(409);
+    expect(apply.json()).toMatchObject({ canApply: false, applied: false });
+  });
+
   it('simulates gift, pending question and official queue as one observable linkage', async () => {
     const runtime = new LiveRuntime(new SqlitePersistence(':memory:'));
     const app = await createApp(runtime);

@@ -29,6 +29,7 @@ import type {
   CommentRule,
   OverlayMessage,
   OverlayState,
+  OperationalDataRecalculationReport,
   Reading,
   RuntimeHealth,
   LiveSession,
@@ -4500,6 +4501,188 @@ export class LiveRuntime {
         expiresAt: item.expiresAt,
       }));
     return [...queued, ...waiting];
+  }
+
+  private calculateOperationalDataReport(): {
+    report: OperationalDataRecalculationReport;
+    engagement: Array<{ userKey: string; username: string; likeCount: number; validCommentCount: number; points: number; reachedAt: number }>;
+    gifts: Array<{ userKey: string; username: string; points: number; giftCount: number; reachedAt: number }>;
+  } {
+    const session = this.currentSession ?? this.persistence.listLiveSessions(1)[0];
+    const recalculatedAt = Date.now();
+    if (!session?.startedAt) {
+      return {
+        report: {
+          canApply: false,
+          applied: false,
+          scanned: { liveEvents: 0, chats: 0, likes: 0, gifts: 0, readings: 0 },
+          rebuilt: { queueItems: 0, pendingQualifications: 0, engagementUsers: 0, giftUsers: 0 },
+          preserved: { rawEvents: 0, completedReadings: 0 },
+          recalculatedAt,
+          blockingReason: '没有可用于重新计算的直播场次。',
+        },
+        engagement: [],
+        gifts: [],
+      };
+    }
+
+    const range = { from: session.startedAt, to: session.endedAt ?? recalculatedAt };
+    const liveEvents = this.persistence.listLiveEventInboxByRange(range.from, range.to);
+    const readings = this.persistence.listReadingsForSession(session.sessionId);
+    const engagementByUser = new Map<string, { userKey: string; username: string; likeCount: number; validCommentCount: number; reachedAt: number }>();
+    const giftsByUser = new Map<string, { userKey: string; username: string; points: number; giftCount: number; reachedAt: number }>();
+
+    const ensureEngagement = (identity: { userId?: string; username: string }, at: number) => {
+      const userKey = viewerKey(identity);
+      const current = engagementByUser.get(userKey) ?? {
+        userKey,
+        username: identity.username,
+        likeCount: 0,
+        validCommentCount: 0,
+        reachedAt: at,
+      };
+      current.username = identity.username || current.username;
+      current.reachedAt = Math.max(current.reachedAt, at);
+      engagementByUser.set(userKey, current);
+      return current;
+    };
+
+    for (const item of liveEvents) {
+      if (item.kind !== 'like') continue;
+      const event = item.payload as LiveLikeEvent;
+      const target = ensureEngagement(event, event.timestamp || item.receivedAt);
+      target.likeCount += Math.max(0, Math.round(event.likeCount));
+    }
+
+    const countedComments = new Set<string>();
+    for (const reading of readings) {
+      if (reading.source !== 'tikfinity' || reading.moderationDecision !== 'ALLOW' || reading.status === 'REJECTED') continue;
+      const dedupeKey = reading.sourceEventId ?? reading.id;
+      if (countedComments.has(dedupeKey)) continue;
+      countedComments.add(dedupeKey);
+      const target = ensureEngagement(reading, reading.createdAt);
+      target.validCommentCount += 1;
+    }
+
+    if (this.settings.gifts.enabled) {
+      for (const item of liveEvents) {
+        if (item.kind !== 'gift') continue;
+        const event = item.payload as LiveGiftEvent;
+        const repeatCount = clamp(event.repeatCount, 1, 1, 9_999);
+        const giftId = event.giftId?.trim().toLocaleLowerCase();
+        const giftName = event.giftName.trim().toLocaleLowerCase();
+        const rule = this.settings.gifts.rules.find((candidate) => {
+          if (!candidate.enabled || repeatCount < candidate.minRepeatCount) return false;
+          const configuredId = candidate.giftId?.trim().toLocaleLowerCase();
+          if (configuredId && giftId && configuredId === giftId) return true;
+          if (candidate.giftName.trim().toLocaleLowerCase() === giftName) return true;
+          return !configuredId && ['任意礼物', 'any gift', 'any', '*'].includes(candidate.giftName.trim().toLocaleLowerCase());
+        });
+        if (!rule) continue;
+        const userKey = viewerKey(event);
+        const at = event.timestamp || item.receivedAt;
+        const target = giftsByUser.get(userKey) ?? { userKey, username: event.username, points: 0, giftCount: 0, reachedAt: at };
+        target.username = event.username || target.username;
+        target.points += rule.leaderboardPoints * repeatCount;
+        target.giftCount += repeatCount;
+        target.reachedAt = Math.max(target.reachedAt, at);
+        giftsByUser.set(userKey, target);
+      }
+    }
+
+    const engagement = [...engagementByUser.values()].map((item) => ({
+      ...item,
+      points: Math.floor(item.likeCount / Math.max(1, this.settings.engagement.likeUnit)) * this.settings.engagement.likePoints
+        + item.validCommentCount * this.settings.engagement.commentPoints,
+    }));
+    const gifts = [...giftsByUser.values()];
+    const pendingQualifications = this.persistence.listGiftEntitlements(500).filter((item) => item.status === 'PENDING' && item.expiresAt > recalculatedAt).length
+      + this.persistence.listQualificationGrants(500, 'PENDING').filter((item) => item.expiresAt > recalculatedAt).length;
+    const blockingReason = this.active
+      ? '当前有正在处理或播报的解卦，请等待本轮结束后再重新计算。'
+      : this.replay
+        ? '当前正在回放历史解卦，请先结束回放。'
+        : this.processingInbox
+          ? '直播事件正在写入，请稍后再试。'
+          : undefined;
+
+    return {
+      report: {
+        canApply: !blockingReason,
+        applied: false,
+        sessionId: session.sessionId,
+        sessionStatus: session.status,
+        range,
+        scanned: {
+          liveEvents: liveEvents.length,
+          chats: liveEvents.filter((item) => item.kind === 'chat').length,
+          likes: liveEvents.filter((item) => item.kind === 'like').length,
+          gifts: liveEvents.filter((item) => item.kind === 'gift').length,
+          readings: readings.length,
+        },
+        rebuilt: {
+          queueItems: readings.filter((item) => item.status === 'QUEUED').length,
+          pendingQualifications,
+          engagementUsers: engagement.length,
+          giftUsers: gifts.length,
+        },
+        preserved: {
+          rawEvents: liveEvents.length,
+          completedReadings: readings.filter((item) => item.status === 'COMPLETED').length,
+        },
+        recalculatedAt,
+        blockingReason,
+      },
+      engagement,
+      gifts,
+    };
+  }
+
+  getOperationalDataRecalculationPreview(): OperationalDataRecalculationReport {
+    return this.calculateOperationalDataReport().report;
+  }
+
+  recalculateOperationalData(): OperationalDataRecalculationReport {
+    const calculated = this.calculateOperationalDataReport();
+    if (!calculated.report.canApply || !calculated.report.sessionId) return calculated.report;
+
+    this.persistence.replaceSessionDerivedStats({
+      sessionId: calculated.report.sessionId,
+      engagement: calculated.engagement,
+      gifts: calculated.gifts,
+    });
+    this.likeTotals.clear();
+    for (const item of calculated.engagement) this.likeTotals.set(item.userKey, item.likeCount);
+
+    this.queue.clear();
+    for (const reading of this.persistence.listQueued()) {
+      this.readings.set(reading.id, reading);
+      this.queue.enqueue({
+        readingId: reading.id,
+        username: reading.username,
+        priority: reading.priority,
+        queuedAt: reading.createdAt,
+        expiresAt: reading.expiresAt,
+      });
+    }
+    this.expireQueued();
+    this.persistence.expireGiftEntitlements();
+    this.persistence.expireQualificationGrants();
+
+    const report: OperationalDataRecalculationReport = {
+      ...calculated.report,
+      applied: true,
+      rebuilt: {
+        ...calculated.report.rebuilt,
+        queueItems: this.queue.size,
+        pendingQualifications: this.getPendingQualifications().length,
+      },
+      recalculatedAt: Date.now(),
+    };
+    this.persistence.recordEvent('OPERATIONAL_DATA_RECALCULATED', report);
+    this.persistence.runMaintenanceRecord('OPERATIONAL_DATA_RECALCULATION', report);
+    this.publishSnapshot('STATE_CHANGED');
+    return report;
   }
 
   getReading(readingId: string): Reading | undefined {

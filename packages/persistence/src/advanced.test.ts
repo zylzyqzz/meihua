@@ -13,4 +13,30 @@ describe('persistence operations', () => {
     expect(persistence.listEvents()).toMatchObject([{ type: 'SETTINGS_UPDATED' }]);
     persistence.close();
   });
+
+  it('rebuilds session projections atomically while preserving durable source rows', () => {
+    const persistence = new SqlitePersistence(':memory:');
+    persistence.saveReading({
+      id: 'session-reading', sessionId: 'session-rebuild', sourceEventId: 'chat-source', source: 'tikfinity',
+      username: 'Viewer', userId: 'viewer-1', rawQuestion: 'Will this plan work?', normalizedQuestion: 'Will this plan work?',
+      moderationDecision: 'ALLOW', status: 'QUEUED', priority: 'NORMAL', createdAt: 120,
+    });
+    const inbox = persistence.enqueueLiveEvent({
+      source: 'tikfinity', eventId: 'like-source', kind: 'like', receivedAt: 110,
+      payload: { source: 'tikfinity', eventId: 'like-source', userId: 'viewer-1', username: 'Viewer', likeCount: 100, timestamp: 110, raw: {} },
+    });
+    persistence.completeLiveEvent(inbox!.id);
+
+    persistence.replaceSessionDerivedStats({
+      sessionId: 'session-rebuild',
+      engagement: [{ userKey: 'viewer-1', username: 'Viewer', likeCount: 100, validCommentCount: 1, points: 5, reachedAt: 120 }],
+      gifts: [{ userKey: 'gift-viewer', username: 'GiftViewer', points: 12, giftCount: 4, reachedAt: 115 }],
+    });
+
+    expect(persistence.listReadingsForSession('session-rebuild')).toEqual([expect.objectContaining({ id: 'session-reading' })]);
+    expect(persistence.listLiveEventInboxByRange(100, 130)).toEqual([expect.objectContaining({ eventId: 'like-source', status: 'DONE' })]);
+    expect(persistence.getSessionEngagementRanking('session-rebuild')).toEqual([expect.objectContaining({ userKey: 'viewer-1', points: 5 })]);
+    expect(persistence.getSessionGiftRanking('session-rebuild')).toEqual([expect.objectContaining({ userKey: 'gift-viewer', points: 12 })]);
+    persistence.close();
+  });
 });

@@ -332,6 +332,11 @@ export async function createApp(runtime: LiveRuntime, options: { production?: bo
     return runtime.removeQueued(readingId) ? { ok: true } : reply.code(404).send({ error: 'QUEUE_ITEM_NOT_FOUND' });
   });
   app.post('/api/queue/clear', async () => ({ cleared: runtime.clearQueue() }));
+  app.get('/api/operations/recalculate/preview', async () => runtime.getOperationalDataRecalculationPreview());
+  app.post('/api/operations/recalculate', async (_request, reply) => {
+    const report = runtime.recalculateOperationalData();
+    return report.canApply ? report : reply.code(409).send(report);
+  });
   app.post<{ Body: BlockUserBody }>('/api/blocked-users', async (request, reply) => {
     const userKey = request.body?.userKey?.trim();
     if (!userKey) return reply.code(400).send({ error: 'userKey is required' });

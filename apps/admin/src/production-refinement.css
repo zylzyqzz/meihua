@@ -222,12 +222,135 @@
 .health-panel,
 .preflight-panel { align-self: start; }
 
+/* One protected operation reconciles the live inbox, durable readings and
+   operator-facing projections. It is intentionally distinct from refresh and
+   destructive queue clearing. */
+.data-recalculation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: -4px 0 2px;
+  padding: 12px 14px;
+  border: 1px solid #ddd2bb;
+  border-radius: 12px;
+  background: #fffaf0;
+}
+
+.data-recalculation-bar > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.data-recalculation-bar > div > svg { width: 24px; height: 24px; flex: none; color: #986912; }
+.data-recalculation-bar span { display: grid; min-width: 0; gap: 3px; }
+.data-recalculation-bar span b { color: #3b321f; font-size: 12px; }
+.data-recalculation-bar span small { overflow: hidden; color: #7b6d52; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.data-recalculation-bar .recalculate-control {
+  flex: none;
+}
+
+.recalculate-control {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 1px solid #a87516;
+  border-radius: 9px;
+  background: #a96f09;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.recalculate-control:hover:not(:disabled) { border-color: #885900; background: #8f5d04; }
+.recalculate-control svg { width: 16px; height: 16px; flex: none; }
+
+.operation-recalculation-modal {
+  padding: 24px;
+  background: rgba(19, 25, 31, .62);
+  backdrop-filter: blur(4px);
+}
+
+.operation-recalculation-modal > section {
+  width: min(780px, calc(100vw - 48px));
+  max-height: min(820px, calc(100vh - 48px));
+  overflow: hidden auto;
+  border: 1px solid #d5dce2;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(20, 28, 36, .24);
+}
+
+.operation-recalculation-modal > section > header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  padding: 17px 20px;
+  border-bottom: 1px solid #e2e7eb;
+  background: #fff;
+}
+
+.operation-recalculation-modal > section > header b { color: #202a33; font-size: 17px; }
+.operation-recalculation-modal > section > header small { color: #73808b; font-size: 10px; }
+.modal-close { display: grid; width: 34px; height: 34px; place-items: center; padding: 0; border-color: #d9dfe5; background: #f7f9fa; color: #4f5c67; }
+.modal-close svg { width: 16px; height: 16px; }
+
+.recalculation-body { display: grid; gap: 16px; padding: 20px; }
+.recalculation-intro { display: flex; gap: 13px; padding: 15px; border: 1px solid #dfd3b9; border-radius: 11px; background: #fffaf0; }
+.recalculation-intro > svg { width: 27px; height: 27px; flex: none; color: #9a6a14; }
+.recalculation-intro b { display: block; color: #382c17; font-size: 13px; }
+.recalculation-intro p { margin: 5px 0 0; color: #6f634d; font-size: 11px; line-height: 1.65; }
+
+.recalculation-session {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  gap: 8px 14px;
+  padding: 13px 15px;
+  border: 1px solid #e1e6ea;
+  border-radius: 10px;
+  background: #f8fafb;
+}
+.recalculation-session span { color: #7a8792; font-size: 10px; }
+.recalculation-session strong { overflow-wrap: anywhere; color: #36424c; font-size: 11px; font-weight: 650; }
+
+.recalculation-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.recalculation-metrics article { min-width: 0; padding: 13px; border: 1px solid #e0e5e9; border-radius: 10px; background: #fff; }
+.recalculation-metrics span,
+.recalculation-metrics b,
+.recalculation-metrics small { display: block; }
+.recalculation-metrics span { color: #6d7984; font-size: 10px; }
+.recalculation-metrics b { margin: 7px 0 5px; color: #25303a; font-size: 23px; line-height: 1; }
+.recalculation-metrics small { min-height: 28px; color: #89949e; font-size: 9px; line-height: 1.5; }
+
+.recalculation-safe,
+.recalculation-blocked { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 10px; }
+.recalculation-safe { border: 1px solid #bcdcc9; background: #f1faf5; color: #2d7951; }
+.recalculation-blocked { border: 1px solid #e7c4c7; background: #fff5f5; color: #9a3d46; }
+.recalculation-safe svg,
+.recalculation-blocked svg { width: 19px; height: 19px; flex: none; }
+.recalculation-safe span,
+.recalculation-blocked span { display: grid; gap: 2px; }
+.recalculation-safe b,
+.recalculation-blocked b { font-size: 11px; }
+.recalculation-safe small,
+.recalculation-blocked small { color: inherit; font-size: 10px; opacity: .82; }
+
+.recalculation-footer { display: flex; justify-content: flex-end; gap: 9px; padding: 15px 20px 18px; border-top: 1px solid #e2e7eb; background: #f8fafb; }
+.recalculation-footer button { display: inline-flex; min-height: 38px; align-items: center; gap: 7px; padding: 0 15px; }
+.recalculation-footer button svg { width: 15px; height: 15px; }
+
 @media (max-width: 1180px) {
   .connect-page .connect-grid > article,
   .connect-page .connect-grid > article:nth-child(2) { grid-column: span 6; }
   .connect-page .connect-grid > .voice-card,
   .connect-page .connect-grid > .avatar-runtime-card { grid-column: 1 / -1; }
   .qualification-layout { grid-template-columns: 1fr; }
+  .data-recalculation-bar { margin-top: 0; }
 }
 
 @media (max-width: 860px) {
@@ -242,6 +365,7 @@
   .connect-page .presentation-upload-row { grid-template-columns: 1fr; }
   .gift-rule-grid > article { grid-template-columns: 50px minmax(0, 1fr) auto; grid-template-rows: auto auto; }
   .gift-rule-grid article > label:not(.gift-enable) { grid-column: 2; }
+  .recalculation-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 640px) {
@@ -251,4 +375,10 @@
   .queue-policy-panel .policy-fields,
   .keyword-groups { grid-template-columns: 1fr; }
   .connect-output-heading { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .data-recalculation-bar { align-items: stretch; flex-direction: column; }
+  .data-recalculation-bar .recalculate-control { justify-content: center; }
+  .recalculation-metrics { grid-template-columns: 1fr; }
+  .recalculation-session { grid-template-columns: 1fr; }
+  .operation-recalculation-modal { padding: 12px; }
+  .operation-recalculation-modal > section { width: calc(100vw - 24px); max-height: calc(100vh - 24px); }
 }
