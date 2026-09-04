@@ -1,12 +1,12 @@
 ﻿[CmdletBinding()]
-param()
+param([switch]$AutoCheck)
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
 $installerRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$manifest = Get-Content -Raw -LiteralPath (Join-Path $installerRoot 'components.json') | ConvertFrom-Json
+$manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $installerRoot 'components.json') | ConvertFrom-Json
 $backend = Join-Path $installerRoot 'Install-MeihuaComponents.ps1'
 $defaultDrive = if (Test-Path -LiteralPath 'D:\') { 'D:\' } else { 'C:\' }
 $defaultRoot = Join-Path $defaultDrive $manifest.defaults.installFolder
@@ -114,6 +114,15 @@ $browseButton = $window.FindName('BrowseButton')
 $installRootBox.Text = $defaultRoot
 $script:componentChecks = @{}
 $script:activeProcess = $null
+$script:activeAction = $null
+$script:stdoutPath = $null
+$script:stderrPath = $null
+$script:stdoutLineCount = 0
+$script:stderrLineCount = 0
+$script:backendFailed = $false
+$script:pollTimer = [Windows.Threading.DispatcherTimer]::new()
+$script:pollTimer.Interval = [TimeSpan]::FromMilliseconds(300)
+$script:autoCheckExitCode = 0
 
 function Add-LogLine([string]$Line) {
   if (-not $Line) { return }
@@ -122,7 +131,7 @@ function Add-LogLine([string]$Line) {
     $statusText.Text = $Matches[2]
     return
   }
-  if ($Line -eq '@@FAILED') { return }
+  if ($Line -eq '@@FAILED') { $script:backendFailed = $true; return }
   $logBox.AppendText($Line + [Environment]::NewLine)
   $logBox.ScrollToEnd()
 }
@@ -188,6 +197,56 @@ function Quote-Argument([string]$Value) {
   return '"' + $Value.Replace('"', '\"') + '"'
 }
 
+function Read-NewLogLines([string]$Path, [string]$Prefix, [int]$LineCount) {
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $LineCount }
+  $lines = @(Get-Content -LiteralPath $Path -Encoding UTF8 -ErrorAction SilentlyContinue)
+  if ($lines.Count -le $LineCount) { return $LineCount }
+  for ($index = $LineCount; $index -lt $lines.Count; $index++) {
+    Add-LogLine ($Prefix + $lines[$index])
+  }
+  return $lines.Count
+}
+
+function Complete-Backend {
+  if (-not $script:activeProcess) { return }
+  $script:stdoutLineCount = Read-NewLogLines $script:stdoutPath '' $script:stdoutLineCount
+  $script:stderrLineCount = Read-NewLogLines $script:stderrPath '错误：' $script:stderrLineCount
+  $script:activeProcess.Refresh()
+  if (-not $script:activeProcess.HasExited) { return }
+
+  $script:activeProcess.WaitForExit()
+  $completedAction = $script:activeAction
+  $succeeded = (-not $script:backendFailed) -and ($script:stderrLineCount -eq 0) -and ($progress.Value -ge 100)
+  $script:pollTimer.Stop()
+  Set-UiBusy $false
+  if ($succeeded) {
+    $progress.Value = 100
+    $statusText.Text = if ($completedAction -eq 'Check') { '环境检查完成' } else { '安装完成' }
+  } else {
+    $statusText.Text = '操作失败，请查看日志'
+    $script:autoCheckExitCode = 1
+  }
+  $script:activeProcess.Dispose()
+  $script:activeProcess = $null
+  $script:activeAction = $null
+  if ($AutoCheck) { $window.Close() }
+}
+
+$script:pollTimer.Add_Tick({
+  try { Complete-Backend }
+  catch {
+    $script:pollTimer.Stop()
+    Set-UiBusy $false
+    $statusText.Text = '读取任务状态失败'
+    Add-LogLine ('错误：' + $_.Exception.Message)
+    if ($AutoCheck) {
+      ($_ | Out-String) | Set-Content -LiteralPath (Join-Path $installerRoot 'logs\gui-autocheck-error.log') -Encoding UTF8
+      $script:autoCheckExitCode = 1
+      $window.Close()
+    }
+  }
+})
+
 function Start-Backend([string]$Action) {
   if ($script:activeProcess -and -not $script:activeProcess.HasExited) { return }
   $target = $installRootBox.Text.Trim()
@@ -198,45 +257,29 @@ function Start-Backend([string]$Action) {
     '-Action', $Action, '-InstallRoot', (Quote-Argument $target)
   )
   if ($Action -eq 'Install') { $arguments += @('-Components', (Quote-Argument ($selected -join ','))) }
-  $psi = [Diagnostics.ProcessStartInfo]::new()
-  $psi.FileName = 'powershell.exe'
-  $psi.Arguments = $arguments -join ' '
-  $psi.UseShellExecute = $false
-  $psi.CreateNoWindow = $true
-  $psi.RedirectStandardOutput = $true
-  $psi.RedirectStandardError = $true
-  $psi.StandardOutputEncoding = [Text.Encoding]::UTF8
-  $psi.StandardErrorEncoding = [Text.Encoding]::UTF8
-  $process = [Diagnostics.Process]::new()
-  $process.StartInfo = $psi
-  $process.EnableRaisingEvents = $true
-  $process.add_OutputDataReceived({ param($sender, $eventArgs)
-    if ($null -ne $eventArgs.Data) { $window.Dispatcher.BeginInvoke([Action[string]]{ param($line) Add-LogLine $line }, $eventArgs.Data) | Out-Null }
-  })
-  $process.add_ErrorDataReceived({ param($sender, $eventArgs)
-    if ($null -ne $eventArgs.Data) { $window.Dispatcher.BeginInvoke([Action[string]]{ param($line) Add-LogLine ('错误：' + $line) }, $eventArgs.Data) | Out-Null }
-  })
-  $process.add_Exited({ param($sender, $eventArgs)
-    $exitCode = $sender.ExitCode
-    $window.Dispatcher.BeginInvoke([Action]{
-      Set-UiBusy $false
-      if ($exitCode -eq 0) {
-        $progress.Value = 100
-        $statusText.Text = if ($Action -eq 'Check') { '环境检查完成' } else { '安装完成' }
-      } else {
-        $statusText.Text = '操作失败，请查看日志'
-      }
-      $script:activeProcess = $null
-    }) | Out-Null
-  })
+  $logsRoot = Join-Path $installerRoot 'logs'
+  New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
+  $runId = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
+  $script:stdoutPath = Join-Path $logsRoot ("gui-$runId.out.log")
+  $script:stderrPath = Join-Path $logsRoot ("gui-$runId.err.log")
+  $script:stdoutLineCount = 0
+  $script:stderrLineCount = 0
+  $script:backendFailed = $false
   $logBox.Clear()
   $progress.Value = 0
   $statusText.Text = if ($Action -eq 'Check') { '正在检查环境' } else { '正在准备安装' }
   Set-UiBusy $true
-  if (-not $process.Start()) { Set-UiBusy $false; throw '无法启动安装任务。' }
-  $script:activeProcess = $process
-  $process.BeginOutputReadLine()
-  $process.BeginErrorReadLine()
+  try {
+    $script:activeProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList ($arguments -join ' ') `
+      -RedirectStandardOutput $script:stdoutPath -RedirectStandardError $script:stderrPath `
+      -WindowStyle Hidden -PassThru
+    $script:activeAction = $Action
+    $script:pollTimer.Start()
+  } catch {
+    Set-UiBusy $false
+    $script:activeProcess = $null
+    throw
+  }
 }
 
 $browseButton.Add_Click({
@@ -252,8 +295,25 @@ $openButton.Add_Click({
   if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -Force -Path $target | Out-Null }
   Start-Process explorer.exe -ArgumentList $target
 })
-$checkButton.Add_Click({ Start-Backend 'Check' })
-$installButton.Add_Click({ Start-Backend 'Install' })
+$checkButton.Add_Click({
+  try { Start-Backend 'Check' }
+  catch {
+    Set-UiBusy $false
+    $statusText.Text = '环境检查启动失败'
+    Add-LogLine ('错误：' + $_.Exception.Message)
+  }
+})
+$installButton.Add_Click({
+  try { Start-Backend 'Install' }
+  catch {
+    Set-UiBusy $false
+    $statusText.Text = '安装任务启动失败'
+    Add-LogLine ('错误：' + $_.Exception.Message)
+  }
+})
+$window.Add_ContentRendered({
+  if ($AutoCheck) { Start-Backend 'Check' }
+})
 $window.Add_Closing({
   if ($script:activeProcess -and -not $script:activeProcess.HasExited) {
     $answer = [Windows.MessageBox]::Show('安装任务仍在运行。确定要关闭窗口吗？', '梅花安装器', 'YesNo', 'Warning')
@@ -262,3 +322,4 @@ $window.Add_Closing({
 })
 
 $window.ShowDialog() | Out-Null
+if ($AutoCheck) { exit $script:autoCheckExitCode }

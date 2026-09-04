@@ -12,10 +12,11 @@ function Assert-Installer([bool]$Condition, [string]$Message) {
 }
 
 $manifestPath = Join-Path $installerRoot 'components.json'
-try { $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json }
+try { $manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json }
 catch { $manifest = $null; $failures.Add("组件清单无法解析：$($_.Exception.Message)") }
 
 Assert-Installer ([bool]$manifest) 'components.json 可以解析'
+Assert-Installer ($manifest.components[0].name -eq '梅花直播中控') 'Windows PowerShell 读取中文组件名正确'
 if ($manifest) {
   $ids = @($manifest.components.id)
   Assert-Installer (($ids | Select-Object -Unique).Count -eq $ids.Count) '组件 ID 唯一'
@@ -46,13 +47,24 @@ foreach ($relative in @(
   Assert-Installer (Test-Path -LiteralPath (Join-Path $installerRoot $relative)) "存在 $relative"
 }
 
-foreach ($script in @(
+$launcherPath = Join-Path $installerRoot 'START-INSTALLER.cmd'
+$launcherBytes = [IO.File]::ReadAllBytes($launcherPath)
+$launcherText = [Text.Encoding]::ASCII.GetString($launcherBytes)
+Assert-Installer (-not ($launcherBytes | Where-Object { $_ -gt 127 })) '启动入口仅使用 ASCII 字符'
+Assert-Installer (-not ($launcherText -match '(?<!\r)\n')) '启动入口使用 Windows CRLF 换行'
+
+$syntaxScripts = @(
   (Join-Path $installerRoot 'MeihuaInstaller.ps1'),
-  (Join-Path $installerRoot 'Install-MeihuaComponents.ps1'),
-  (Join-Path $repositoryRoot 'scripts\start-kokoro-tts.ps1'),
-  (Join-Path $repositoryRoot 'scripts\start-gptsovits.ps1'),
-  (Join-Path $repositoryRoot 'scripts\start-musetalk-service.ps1')
-)) {
+  (Join-Path $installerRoot 'Install-MeihuaComponents.ps1')
+)
+if (Test-Path -LiteralPath (Join-Path $repositoryRoot 'package.json')) {
+  $syntaxScripts += @(
+    (Join-Path $repositoryRoot 'scripts\start-kokoro-tts.ps1'),
+    (Join-Path $repositoryRoot 'scripts\start-gptsovits.ps1'),
+    (Join-Path $repositoryRoot 'scripts\start-musetalk-service.ps1')
+  )
+}
+foreach ($script in $syntaxScripts) {
   $tokens = $null
   $errors = $null
   [Management.Automation.Language.Parser]::ParseFile($script, [ref]$tokens, [ref]$errors) | Out-Null

@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 $installerRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repositoryRoot = Split-Path -Parent $installerRoot
 $manifestPath = Join-Path $installerRoot 'components.json'
-$manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+$manifest = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json
 
 if (-not $InstallRoot) {
   $drive = if (Test-Path -LiteralPath 'D:\') { 'D:\' } else { 'C:\' }

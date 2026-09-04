@@ -1,11 +1,10 @@
 @echo off
 setlocal
-chcp 65001 >nul
 cd /d "%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0MeihuaInstaller.ps1"
+"%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0MeihuaInstaller.ps1"
 if errorlevel 1 (
   echo.
-  echo 安装器启动失败。请查看 installer\logs 目录。
+  echo Installer failed to start. Open the logs folder for details.
   pause
 )
 endlocal
