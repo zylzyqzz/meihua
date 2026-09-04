@@ -378,6 +378,13 @@ function PresentationPanel({ settings, assets, onSaved }: { settings: AppSetting
 
 export function App() {
   const [tab, setTab] = useState<Tab>('live');
+  // The studio editor owns a preview session, a sizeable layer tree and an
+  // iframe.  Recreating all three on every tab switch made the workbench take
+  // several seconds to open even when every API response was already hot.
+  // Mount it on first use and keep that instance alive for the operator
+  // session; the hidden attribute removes it from layout while preserving its
+  // local edit/history state.
+  const [workbenchVisited, setWorkbenchVisited] = useState(false);
   const activeTabRef = useRef<Tab>('live');
   const [health, setHealth] = useState<RuntimeHealth>();
   const [settings, setSettings] = useState<AppSettings>();
@@ -704,6 +711,7 @@ export function App() {
 
   useEffect(() => {
     activeTabRef.current = tab;
+    if (tab === 'obs') setWorkbenchVisited(true);
     const resetScroll = () => window.scrollTo({ top: 0, behavior: 'auto' });
     resetScroll();
     const frame = window.requestAnimationFrame(resetScroll);
@@ -792,7 +800,7 @@ export function App() {
   };
 
   useEffect(() => {
-    if (tab === 'obs' || tab === 'avatar') void probeDigitalHuman().catch(() => undefined);
+    if (tab === 'avatar') void probeDigitalHuman().catch(() => undefined);
   }, [tab]);
 
   // 后台丝滑化：WebSocket 推送驱动实时数据（导演快照/队列/榜单秒级），轮询降级为兜底。
@@ -1405,8 +1413,8 @@ export function App() {
 
   const studioConsole = <main className="admin-shell">
     <header className="topbar"><div className="brand-lockup"><div className="brand-mark"><SquaresFour weight="fill" /></div><div><p>MEIHUA LIVE CONTROL</p><h1>Studio Console</h1></div></div><div className="session-controls">{liveControls}</div><div className="top-metrics"><div><span>开播状态</span><strong className={session?.status === 'LIVE' ? 'live-text' : ''}>{session?.status === 'LIVE' ? 'LIVE' : session?.status ?? '未开播'}</strong></div><div><span>当前阶段</span><strong>{stage}</strong></div><div><span>正在连麦观众</span><strong>{active ? `@${active.username}` : '等待观众'}</strong></div><LiveClock /></div></header>
-    <aside className="sidebar"><nav className="side-nav">{tabs.map((item) => <button key={item.id} aria-label={`${item.label} ${item.note}`} title={item.label} className={tab === item.id ? 'active' : ''} onClick={() => { activeTabRef.current = item.id; setTab(item.id); }}><span className="nav-icon">{tabIcons[item.id]}</span><span><strong>{item.label}</strong><small>{item.note}</small></span></button>)}</nav><div className="sidebar-foot"><div className="operator"><UserCircle weight="fill" /><span><strong>梅花老师</strong><small>直播导演</small></span></div><div className="system-mini"><span><i className="status-dot" />中控运行中</span><small>已运行 {elapsed(health?.uptimeMs ?? 0)}</small></div></div></aside>
-    <section className="workspace">{!wsConnected && <div className="notice ws-fallback-notice"><Lightning weight="fill" />实时推送已断开，已切换为兜底轮询（5 秒）</div>}{notice && <div className="notice"><CheckCircle weight="fill" />{notice}</div>}{tab === 'live' ? livePage : tab === 'avatar' ? avatarPage : tab === 'obs' ? obsPage : tab === 'simple' ? simplePage : tab === 'connect' ? connectPage : recordsPage}</section>
+    <aside className="sidebar"><nav className="side-nav">{tabs.map((item) => <button key={item.id} aria-label={`${item.label} ${item.note}`} title={item.label} className={tab === item.id ? 'active' : ''} onClick={() => { activeTabRef.current = item.id; if (item.id === 'obs') setWorkbenchVisited(true); setTab(item.id); }}><span className="nav-icon">{tabIcons[item.id]}</span><span><strong>{item.label}</strong><small>{item.note}</small></span></button>)}</nav><div className="sidebar-foot"><div className="operator"><UserCircle weight="fill" /><span><strong>梅花老师</strong><small>直播导演</small></span></div><div className="system-mini"><span><i className="status-dot" />中控运行中</span><small>已运行 {elapsed(health?.uptimeMs ?? 0)}</small></div></div></aside>
+    <section className="workspace">{!wsConnected && <div className="notice ws-fallback-notice"><Lightning weight="fill" />实时推送已断开，已切换为兜底轮询（5 秒）</div>}{notice && <div className="notice"><CheckCircle weight="fill" />{notice}</div>}{tab !== 'obs' && (tab === 'live' ? livePage : tab === 'avatar' ? avatarPage : tab === 'simple' ? simplePage : tab === 'connect' ? connectPage : recordsPage)}{workbenchVisited && <div className="workbench-cache" hidden={tab !== 'obs'}>{obsPage}</div>}</section>
   </main>;
 
   return <>

@@ -236,6 +236,8 @@ label > span { color: var(--ui-text); }
 .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-green); box-shadow: 0 0 12px rgba(57,201,135,.48); }
 
 .workspace { min-width: 0; padding: 18px; background: var(--ui-canvas); }
+.workbench-cache { display: contents; }
+.workbench-cache[hidden] { display: none; }
 .page { gap: 14px; }
 .workspace-title { min-height: 58px; padding: 0 2px 6px; }
 .workspace-title .eyebrow { display: none; }
