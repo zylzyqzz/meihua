@@ -548,18 +548,27 @@ function Expand-PortableProjectSource([string]$Archive, [string]$Target) {
         Where-Object { Test-ProjectSourceComplete $_.FullName } | Select-Object -First 1 -ExpandProperty FullName
     }
     if (-not $sourceRoot) { throw '安装器内置源码包结构不完整。' }
-    if (Test-Path -LiteralPath $Target) {
-      $backup = "$Target.incomplete-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
-      Move-Item -LiteralPath $Target -Destination $backup
-      Write-InstallerLog "发现未完成的源码目录，已保留到：$backup" 'WARN'
-    }
-    if ($sourceRoot -eq $staging) {
-      Move-Item -LiteralPath $staging -Destination $Target
-      $staging = ''
+    $mergeExisting = Test-ProjectSourceComplete $Target
+    if ($mergeExisting) {
+      Write-InstallerLog '检测到上一版已安装源码，正在覆盖更新程序文件；数据库、密钥和用户素材不会删除。'
+      foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -Force) {
+        Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $Target $item.Name) -Recurse -Force
+      }
     } else {
-      Move-Item -LiteralPath $sourceRoot -Destination $Target
+      if (Test-Path -LiteralPath $Target) {
+        $backup = "$Target.incomplete-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Move-Item -LiteralPath $Target -Destination $backup
+        Write-InstallerLog "发现未完成的源码目录，已保留到：$backup" 'WARN'
+      }
+      if ($sourceRoot -eq $staging) {
+        Move-Item -LiteralPath $staging -Destination $Target
+        $staging = ''
+      } else {
+        Move-Item -LiteralPath $sourceRoot -Destination $Target
+      }
     }
     if (-not (Test-ProjectSourceComplete $Target)) { throw '主中控源码解压后校验失败。' }
+    (Get-FileHash -Algorithm SHA256 -LiteralPath $Archive).Hash | Set-Content -LiteralPath (Join-Path $Target '.meihua-portable-source.sha256') -Encoding ASCII
     Write-InstallerLog "主中控源码已就绪：$Target" 'OK'
   } finally {
     if ($staging -and (Test-Path -LiteralPath $staging)) { Remove-Item -LiteralPath $staging -Recurse -Force }
@@ -569,13 +578,20 @@ function Expand-PortableProjectSource([string]$Archive, [string]$Target) {
 function Resolve-ProjectRoot {
   if (Test-Path -LiteralPath (Join-Path $repositoryRoot 'package.json')) { return $repositoryRoot }
   $target = Join-Path $InstallRoot 'meihua-live'
-  if (Test-ProjectSourceComplete $target) {
-    Write-InstallerLog '检测到已经解压完成的主中控源码，本次直接继续，不重复下载。' 'OK'
-    return $target
-  }
   $portableArchive = Join-Path $installerRoot 'payload\meihua-live-source.zip'
   if (Test-Path -LiteralPath $portableArchive) {
-    Expand-PortableProjectSource $portableArchive $target
+    $archiveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $portableArchive).Hash
+    $markerPath = Join-Path $target '.meihua-portable-source.sha256'
+    $installedHash = if (Test-Path -LiteralPath $markerPath) { (Get-Content -Raw -LiteralPath $markerPath).Trim() } else { '' }
+    if (-not (Test-ProjectSourceComplete $target) -or $installedHash -ne $archiveHash) {
+      Expand-PortableProjectSource $portableArchive $target
+    } else {
+      Write-InstallerLog '检测到相同版本的完整主中控源码，本次直接继续，不重复释放。' 'OK'
+    }
+    return $target
+  }
+  if (Test-ProjectSourceComplete $target) {
+    Write-InstallerLog '检测到已经解压完成的主中控源码，本次直接继续，不重复下载。' 'OK'
     return $target
   }
   Ensure-WingetPackage 'git.exe' 'Git.Git' 'Git'
