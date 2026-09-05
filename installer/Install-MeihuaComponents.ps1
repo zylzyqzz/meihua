@@ -9,6 +9,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
+$env:PIP_DEFAULT_TIMEOUT = '120'
+$env:HF_HUB_DOWNLOAD_TIMEOUT = '300'
+$env:HF_HUB_ETAG_TIMEOUT = '60'
 $installerRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repositoryRoot = Split-Path -Parent $installerRoot
 $manifestPath = Join-Path $installerRoot 'components.json'
@@ -67,6 +70,14 @@ function Invoke-Checked([string]$FilePath, [string[]]$ArgumentList, [string]$Wor
     $ErrorActionPreference = $previousErrorActionPreference
     if ($WorkingDirectory) { Pop-Location }
   }
+}
+
+function Invoke-PipInstall([string]$Python, [string[]]$Packages) {
+  $arguments = @(
+    '-m', 'pip', 'install', '--disable-pip-version-check',
+    '--retries', '8', '--timeout', '120'
+  ) + $Packages
+  Invoke-Checked $Python $arguments
 }
 
 function Format-ByteSize([long]$Bytes) {
@@ -296,12 +307,12 @@ function Ensure-Venv([string]$Python, [string]$VenvPath) {
   if (-not (Test-Path -LiteralPath $venvPython)) {
     Invoke-Checked $Python @('-m', 'venv', $VenvPath)
   }
-  Invoke-Checked $venvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '--upgrade', 'pip', 'setuptools', 'wheel')
+  Invoke-PipInstall $venvPython @('--upgrade', 'pip', 'setuptools', 'wheel')
   return $venvPython
 }
 
 function Ensure-HuggingFaceCli([string]$VenvPython) {
-  Invoke-Checked $VenvPython @('-m', 'pip', 'install', '--disable-pip-version-check', 'huggingface_hub[hf_xet]')
+  Invoke-PipInstall $VenvPython @('huggingface_hub[hf_xet]')
   $hf = Join-Path (Split-Path -Parent $VenvPython) 'hf.exe'
   if (-not (Test-Path -LiteralPath $hf)) { throw 'Hugging Face CLI 安装后不可用。' }
   return $hf
@@ -658,6 +669,7 @@ function Install-Core([string]$ProjectRoot) {
   if (-not $pnpm) { throw 'pnpm 安装失败。' }
   Invoke-Checked $pnpm @(
     'install', '--frozen-lockfile', '--reporter', 'append-only', '--fetch-timeout', '60000',
+    '--fetch-retries', '5', '--fetch-retry-mintimeout', '10000', '--fetch-retry-maxtimeout', '120000',
     '--registry', 'https://registry.npmjs.org/'
   ) $ProjectRoot
   Invoke-Checked $pnpm @('build') $ProjectRoot
@@ -669,7 +681,7 @@ function Install-Kokoro([string]$ProjectRoot) {
   $python = Ensure-Python310
   $serviceRoot = Join-Path $ProjectRoot 'services\kokoro-tts'
   $venvPython = Ensure-Venv $python (Join-Path $serviceRoot '.venv')
-  Invoke-Checked $venvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '-r', (Join-Path $serviceRoot 'requirements.txt'))
+  Invoke-PipInstall $venvPython @('-r', (Join-Path $serviceRoot 'requirements.txt'))
   $models = Join-Path $serviceRoot 'models'
   Save-Download $manifest.pinnedSources.kokoroModelUrl (Join-Path $models 'kokoro-v1.0.onnx') $manifest.pinnedSources.kokoroModelSha256
   Save-Download $manifest.pinnedSources.kokoroVoicesUrl (Join-Path $models 'voices-v1.0.bin') $manifest.pinnedSources.kokoroVoicesSha256
@@ -686,7 +698,7 @@ function Install-GptSoVits([string]$ProjectRoot) {
   }
   Copy-Item -Path (Join-Path $installerRoot 'overlays\gptsovits-v3\*') -Destination $target -Recurse -Force
   $venvPython = Ensure-Venv $python (Join-Path $target 'runtime')
-  Invoke-Checked $venvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '-r', (Join-Path $target 'requirements.txt'))
+  Invoke-PipInstall $venvPython @('-r', (Join-Path $target 'requirements.txt'))
   $hf = Ensure-HuggingFaceCli $venvPython
   Invoke-Checked $hf @('download', 'lj1995/GPT-SoVITS', '--local-dir', (Join-Path $target 'GPT_SoVITS\pretrained_models'))
   Invoke-Checked $hf @('download', 'G2PW/G2PWModel-v2-onnx', '--local-dir', (Join-Path $target 'GPT_SoVITS\text\G2PWModel'))
@@ -733,10 +745,10 @@ function Install-OpenVoice([string]$ProjectRoot) {
   }
   $venvPython = Ensure-Venv $python (Join-Path $target '.venv')
   if (Test-Path -LiteralPath (Join-Path $target 'requirements.txt')) {
-    Invoke-Checked $venvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '-r', (Join-Path $target 'requirements.txt'))
+    Invoke-PipInstall $venvPython @('-r', (Join-Path $target 'requirements.txt'))
   }
-  Invoke-Checked $venvPython @('-m', 'pip', 'install', '--disable-pip-version-check', '-e', $target)
-  Invoke-Checked $venvPython @('-m', 'pip', 'install', '--disable-pip-version-check', 'git+https://github.com/myshell-ai/MeloTTS.git')
+  Invoke-PipInstall $venvPython @('-e', $target)
+  Invoke-PipInstall $venvPython @('git+https://github.com/myshell-ai/MeloTTS.git')
   Invoke-Checked $venvPython @('-m', 'unidic', 'download')
   $checkpointArchive = Join-Path $ProjectRoot 'downloads\checkpoints_v2_0417.zip'
   Save-Download $manifest.pinnedSources.openVoiceV2CheckpointsUrl $checkpointArchive
