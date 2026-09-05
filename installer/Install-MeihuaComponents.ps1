@@ -69,6 +69,60 @@ function Invoke-Checked([string]$FilePath, [string[]]$ArgumentList, [string]$Wor
   }
 }
 
+function Format-ByteSize([long]$Bytes) {
+  if ($Bytes -ge 1GB) { return ('{0:N2} GB' -f ($Bytes / 1GB)) }
+  if ($Bytes -ge 1MB) { return ('{0:N1} MB' -f ($Bytes / 1MB)) }
+  if ($Bytes -ge 1KB) { return ('{0:N1} KB' -f ($Bytes / 1KB)) }
+  return "$Bytes B"
+}
+
+function Quote-NativeArgument([string]$Value) {
+  if ($null -eq $Value) { return '""' }
+  return '"' + $Value.Replace('"', '\"') + '"'
+}
+
+function Invoke-ResumableCurlDownload([string]$Curl, [string]$Source, [string]$Partial) {
+  $runId = [Guid]::NewGuid().ToString('N')
+  $curlOut = Join-Path $logRoot "curl-$runId.out.log"
+  $curlErr = Join-Path $logRoot "curl-$runId.err.log"
+  $arguments = @(
+    '--location', '--fail', '--silent', '--show-error',
+    '--connect-timeout', '20', '--speed-time', '120', '--speed-limit', '1024',
+    '--continue-at', '-', '--output', $Partial, $Source
+  )
+  $argumentLine = ($arguments | ForEach-Object { Quote-NativeArgument ([string]$_) }) -join ' '
+  $process = Start-Process -FilePath $Curl -ArgumentList $argumentLine -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput $curlOut -RedirectStandardError $curlErr
+  $startedAt = Get-Date
+  $lastReportAt = [DateTime]::MinValue
+  try {
+    while (-not $process.HasExited) {
+      Start-Sleep -Seconds 2
+      $process.Refresh()
+      if (((Get-Date) - $lastReportAt).TotalSeconds -ge 10) {
+        $bytes = if (Test-Path -LiteralPath $Partial) { (Get-Item -LiteralPath $Partial).Length } else { 0 }
+        $elapsed = [Math]::Max(1, ((Get-Date) - $startedAt).TotalSeconds)
+        $speed = [long]($bytes / $elapsed)
+        Write-InstallerLog ("下载中：{0}，已缓存 {1}，平均 {2}/秒；中断后再次安装会从这里继续" -f `
+          (Split-Path -Leaf $Partial), (Format-ByteSize $bytes), (Format-ByteSize $speed))
+        $lastReportAt = Get-Date
+      }
+    }
+    $process.WaitForExit()
+    $process.Refresh()
+    $rawDetail = if (Test-Path -LiteralPath $curlErr) { Get-Content -Raw -LiteralPath $curlErr -ErrorAction SilentlyContinue } else { '' }
+    $detail = if ($rawDetail) { ([string]$rawDetail).Trim() } else { '' }
+    $exitCode = $process.ExitCode
+    if ($detail -or ($null -ne $exitCode -and $exitCode -ne 0)) {
+      if (-not $detail) { $detail = "curl 返回错误码 $exitCode" }
+      throw $detail
+    }
+  } finally {
+    $process.Dispose()
+    Remove-Item -LiteralPath $curlOut, $curlErr -Force -ErrorAction SilentlyContinue
+  }
+}
+
 function Get-FfmpegPath {
   $command = Get-CommandPath 'ffmpeg.exe'
   if ($command) { return $command }
@@ -252,38 +306,62 @@ function Ensure-HuggingFaceCli([string]$VenvPython) {
 
 function Save-Download([string[]]$Uri, [string]$Destination, [string]$Sha256 = '') {
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $Destination) | Out-Null
-  if ((Test-Path -LiteralPath $Destination) -and (-not $Sha256 -or (Get-FileHash -Algorithm SHA256 -LiteralPath $Destination).Hash -eq $Sha256)) {
+  if ((Test-Path -LiteralPath $Destination) -and (Get-Item -LiteralPath $Destination).Length -gt 0 -and `
+      (-not $Sha256 -or (Get-FileHash -Algorithm SHA256 -LiteralPath $Destination).Hash -eq $Sha256)) {
     Write-InstallerLog "已存在并通过校验：$(Split-Path -Leaf $Destination)" 'OK'
     return
   }
   $partial = "$Destination.partial"
+  if ((Test-Path -LiteralPath $partial) -and $Sha256 -and `
+      (Get-Item -LiteralPath $partial).Length -gt 0 -and `
+      (Get-FileHash -Algorithm SHA256 -LiteralPath $partial).Hash -eq $Sha256) {
+    Move-Item -LiteralPath $partial -Destination $Destination -Force
+    Write-InstallerLog "找到上次已经下载完成的缓存并通过校验：$(Split-Path -Leaf $Destination)" 'OK'
+    return
+  }
+  if (Test-Path -LiteralPath $Destination) {
+    Write-InstallerLog "现有文件校验失败，将重新下载：$(Split-Path -Leaf $Destination)" 'WARN'
+    Remove-Item -LiteralPath $Destination -Force
+  }
   $errors = [System.Collections.Generic.List[string]]::new()
   foreach ($source in @($Uri)) {
-    Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
-    try {
-      Write-InstallerLog "正在下载：$source"
-      $curl = Get-CommandPath 'curl.exe'
-      if ($curl) {
-        Invoke-Checked $curl @(
-          '-L', '--fail', '--silent', '--show-error', '--connect-timeout', '15',
-          '--max-time', '1800', '--retry', '2', '--retry-delay', '2',
-          '--output', $partial, $source
-        )
-      } else {
-        Invoke-WebRequest -UseBasicParsing -Uri $source -OutFile $partial -TimeoutSec 1800
+    for ($attempt = 1; $attempt -le 5; $attempt++) {
+      try {
+        $cachedBytes = if (Test-Path -LiteralPath $partial) { (Get-Item -LiteralPath $partial).Length } else { 0 }
+        Write-InstallerLog ("正在下载（第 {0}/5 次）：{1}；已有缓存 {2}" -f $attempt, $source, (Format-ByteSize $cachedBytes))
+        $curl = Get-CommandPath 'curl.exe'
+        if ($curl) {
+          Invoke-ResumableCurlDownload $curl $source $partial
+        } else {
+          Write-InstallerLog '系统未找到 curl，本次使用 PowerShell 下载；建议更新 Windows 以获得断点续传能力。' 'WARN'
+          Invoke-WebRequest -UseBasicParsing -Uri $source -OutFile $partial -TimeoutSec 3600
+        }
+        if (-not (Test-Path -LiteralPath $partial) -or (Get-Item -LiteralPath $partial).Length -le 0) {
+          throw '服务器没有返回有效文件'
+        }
+        if ($Sha256 -and (Get-FileHash -Algorithm SHA256 -LiteralPath $partial).Hash -ne $Sha256) {
+          # A completed file with the wrong checksum cannot be safely resumed.
+          Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+          throw 'SHA-256 校验不一致，已丢弃损坏缓存'
+        }
+        Move-Item -LiteralPath $partial -Destination $Destination -Force
+        Write-InstallerLog ("下载完成：{0}（{1}）" -f (Split-Path -Leaf $Destination), (Format-ByteSize (Get-Item -LiteralPath $Destination).Length)) 'OK'
+        return
+      } catch {
+        $message = $_.Exception.Message
+        $errors.Add("$source 第 $attempt 次 -> $message")
+        if ($attempt -lt 5) {
+          $delaySeconds = [Math]::Min(30, 3 * $attempt)
+          Write-InstallerLog ("下载暂时中断：{0}。已下载部分会保留，{1} 秒后继续。" -f $message, $delaySeconds) 'WARN'
+          Start-Sleep -Seconds $delaySeconds
+        } else {
+          Write-InstallerLog "当前下载源连续失败，准备尝试备用源；已下载缓存仍然保留。" 'WARN'
+        }
       }
-      if ($Sha256 -and (Get-FileHash -Algorithm SHA256 -LiteralPath $partial).Hash -ne $Sha256) {
-        throw 'SHA-256 校验不一致'
-      }
-      Move-Item -LiteralPath $partial -Destination $Destination -Force
-      return
-    } catch {
-      $errors.Add("$source -> $($_.Exception.Message)")
-      Write-InstallerLog "当前下载源失败，准备尝试备用源：$($_.Exception.Message)" 'WARN'
     }
   }
-  Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
-  throw ("所有下载源均失败：{0}" -f ($errors -join '；'))
+  $cached = if (Test-Path -LiteralPath $partial) { Format-ByteSize (Get-Item -LiteralPath $partial).Length } else { '0 B' }
+  throw ("所有下载源暂时不可用，已保留 $cached 缓存。网络恢复后再次点击安装即可续传。详情：{0}" -f ($errors -join '；'))
 }
 
 function Test-ObsInstalled {
@@ -436,9 +514,56 @@ function Write-EnvironmentSummary($Report) {
   }
 }
 
+function Test-ProjectSourceComplete([string]$Path) {
+  return (Test-Path -LiteralPath (Join-Path $Path 'package.json')) -and `
+    (Test-Path -LiteralPath (Join-Path $Path 'pnpm-lock.yaml')) -and `
+    (Test-Path -LiteralPath (Join-Path $Path 'apps\orchestrator\package.json')) -and `
+    (Test-Path -LiteralPath (Join-Path $Path 'scripts\start-production.ps1'))
+}
+
+function Expand-PortableProjectSource([string]$Archive, [string]$Target) {
+  $staging = Join-Path $InstallRoot ('.source-staging-' + [Guid]::NewGuid().ToString('N'))
+  New-Item -ItemType Directory -Force -Path $staging | Out-Null
+  try {
+    Write-InstallerLog '正在解压安装器自带的主中控源码；此步骤不需要登录 GitHub。'
+    Expand-Archive -LiteralPath $Archive -DestinationPath $staging -Force
+    $sourceRoot = if (Test-ProjectSourceComplete $staging) {
+      $staging
+    } else {
+      Get-ChildItem -LiteralPath $staging -Directory -ErrorAction SilentlyContinue |
+        Where-Object { Test-ProjectSourceComplete $_.FullName } | Select-Object -First 1 -ExpandProperty FullName
+    }
+    if (-not $sourceRoot) { throw '安装器内置源码包结构不完整。' }
+    if (Test-Path -LiteralPath $Target) {
+      $backup = "$Target.incomplete-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+      Move-Item -LiteralPath $Target -Destination $backup
+      Write-InstallerLog "发现未完成的源码目录，已保留到：$backup" 'WARN'
+    }
+    if ($sourceRoot -eq $staging) {
+      Move-Item -LiteralPath $staging -Destination $Target
+      $staging = ''
+    } else {
+      Move-Item -LiteralPath $sourceRoot -Destination $Target
+    }
+    if (-not (Test-ProjectSourceComplete $Target)) { throw '主中控源码解压后校验失败。' }
+    Write-InstallerLog "主中控源码已就绪：$Target" 'OK'
+  } finally {
+    if ($staging -and (Test-Path -LiteralPath $staging)) { Remove-Item -LiteralPath $staging -Recurse -Force }
+  }
+}
+
 function Resolve-ProjectRoot {
   if (Test-Path -LiteralPath (Join-Path $repositoryRoot 'package.json')) { return $repositoryRoot }
   $target = Join-Path $InstallRoot 'meihua-live'
+  if (Test-ProjectSourceComplete $target) {
+    Write-InstallerLog '检测到已经解压完成的主中控源码，本次直接继续，不重复下载。' 'OK'
+    return $target
+  }
+  $portableArchive = Join-Path $installerRoot 'payload\meihua-live-source.zip'
+  if (Test-Path -LiteralPath $portableArchive) {
+    Expand-PortableProjectSource $portableArchive $target
+    return $target
+  }
   Ensure-WingetPackage 'git.exe' 'Git.Git' 'Git'
   if (-not (Test-Path -LiteralPath (Join-Path $target '.git'))) {
     New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
@@ -451,13 +576,35 @@ function Resolve-ProjectRoot {
       if (Test-Path -LiteralPath (Join-Path $target 'package.json')) {
         Write-InstallerLog 'GitHub 连接中断，但源码文件已经完整下载；继续使用本地源码安装。' 'WARN'
       } else {
-        throw '主中控源码下载失败。请确认网络正常，并已使用有权访问 zylzyqzz/meihua 的 GitHub 账号登录 Git Credential Manager。'
+        throw '主中控源码下载失败。当前安装器没有离线源码载荷，且本机没有私有仓库权限。请使用完整版安装器，或登录有权访问 zylzyqzz/meihua 的 GitHub 账号。'
       }
     }
   } else {
     Write-InstallerLog '检测到已经下载好的主中控源码，本次直接复用，不重复联网拉取。' 'OK'
   }
   return $target
+}
+
+function Write-InstalledLaunchers([string]$ProjectRoot) {
+  $launcher = Join-Path $InstallRoot 'START-MEIHUA.cmd'
+  $powerShellLauncher = Join-Path $InstallRoot 'START-MEIHUA.ps1'
+  $scriptContent = @'
+$ErrorActionPreference = 'Stop'
+$projectRoot = Join-Path $PSScriptRoot 'meihua-live'
+if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'scripts\start-production.ps1'))) {
+  throw "没有找到已经安装的梅花直播系统：$projectRoot"
+}
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $projectRoot 'scripts\start-production.ps1')
+'@
+  [IO.File]::WriteAllText($powerShellLauncher, $scriptContent, [Text.UTF8Encoding]::new($true))
+  $cmdContent = @(
+    '@echo off',
+    'chcp 65001 >nul',
+    'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0START-MEIHUA.ps1"',
+    'if errorlevel 1 pause'
+  ) -join "`r`n"
+  [IO.File]::WriteAllText($launcher, $cmdContent + "`r`n", [Text.Encoding]::ASCII)
+  Write-InstallerLog "一键启动入口已创建：$launcher" 'OK'
 }
 
 function Install-Core([string]$ProjectRoot) {
@@ -471,6 +618,7 @@ function Install-Core([string]$ProjectRoot) {
     '--registry', 'https://registry.npmjs.org/'
   ) $ProjectRoot
   Invoke-Checked $pnpm @('build') $ProjectRoot
+  Write-InstalledLaunchers $ProjectRoot
   Write-InstallerLog '梅花直播中控已构建完成' 'OK'
 }
 
@@ -575,6 +723,53 @@ function Install-Obs {
   if (-not (Test-ObsInstalled)) { throw 'OBS Studio 安装后仍未检测到；请重新打开安装器复检。' }
 }
 
+function Set-ComponentInstallState([string]$Id, [string]$Status, [string]$Message = '') {
+  $progressRoot = Join-Path $InstallRoot '.meihua-installer'
+  New-Item -ItemType Directory -Force -Path $progressRoot | Out-Null
+  [ordered]@{
+    component = $Id
+    status = $Status
+    message = $Message
+    updatedAt = [DateTimeOffset]::Now.ToString('o')
+  } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $progressRoot "component-$Id.json") -Encoding UTF8
+}
+
+function Test-ComponentReady([string]$Id, [string]$ProjectRoot) {
+  switch ($Id) {
+    'core' {
+      return (Test-Path -LiteralPath (Join-Path $ProjectRoot 'apps\admin\dist\index.html')) -and `
+        (Test-Path -LiteralPath (Join-Path $ProjectRoot 'apps\overlay\dist\index.html')) -and `
+        ((Test-Path -LiteralPath (Join-Path $ProjectRoot 'apps\orchestrator\dist\index.cjs')) -or `
+         (Test-Path -LiteralPath (Join-Path $ProjectRoot 'apps\orchestrator\dist\app.js')))
+    }
+    'kokoro' {
+      $root = Join-Path $ProjectRoot 'services\kokoro-tts'
+      return (Test-Path -LiteralPath (Join-Path $root '.venv\Scripts\python.exe')) -and `
+        (Test-Path -LiteralPath (Join-Path $root 'models\kokoro-v1.0.onnx')) -and `
+        (Test-Path -LiteralPath (Join-Path $root 'models\voices-v1.0.bin'))
+    }
+    'gptsovits' {
+      $root = Join-Path $ProjectRoot 'external\gptsovits-v3'
+      return (Test-Path -LiteralPath (Join-Path $root 'runtime\Scripts\python.exe')) -and `
+        (Test-Path -LiteralPath (Join-Path $root 'GPT_SoVITS\pretrained_models'))
+    }
+    'asr' { return Test-Path -LiteralPath (Join-Path $ProjectRoot 'external\gptsovits-v3\tools\asr\models\openai-whisper\tiny.pt') }
+    'musetalk' {
+      $root = Join-Path $ProjectRoot 'external\musetalk'
+      return (Test-Path -LiteralPath (Join-Path $root '.venv\Scripts\python.exe')) -and (Test-Path -LiteralPath (Join-Path $root 'models'))
+    }
+    'openvoice' {
+      $root = Join-Path $ProjectRoot 'external\openvoice'
+      return (Test-Path -LiteralPath (Join-Path $root '.venv\Scripts\python.exe')) -and `
+        (Test-Path -LiteralPath (Join-Path $root 'checkpoints_v2\converter\config.json'))
+    }
+    'obs' { return Test-ObsInstalled }
+    'vbcable' { return Test-VbCableInstalled }
+    'tikfinity' { return Test-TikfinityInstalled }
+  }
+  return $false
+}
+
 function Repair-Dependencies([System.Collections.Generic.List[string]]$Selected) {
   $steps = [System.Collections.Generic.List[object]]::new()
   $steps.Add(@{ Label = 'Git'; Run = { Ensure-WingetPackage 'git.exe' 'Git.Git' 'Git' } })
@@ -589,16 +784,24 @@ function Repair-Dependencies([System.Collections.Generic.List[string]]$Selected)
   if ($Selected.Contains('vbcable')) { $steps.Add(@{ Label = 'VB-CABLE'; Run = { Install-VbCable } }) }
   if ($Selected.Contains('tikfinity')) { $steps.Add(@{ Label = 'TikFinity'; Run = { Install-Tikfinity } }) }
 
+  $failures = [System.Collections.Generic.List[string]]::new()
   $index = 0
   foreach ($step in $steps) {
     $index++
     $percent = 8 + [int](82 * ($index - 1) / [Math]::Max(1, $steps.Count))
     Write-ProgressEvent $percent ("正在检查并补齐：{0}" -f $step.Label)
-    & $step.Run
+    try {
+      & $step.Run
+    } catch {
+      $message = $_.Exception.Message
+      $failures.Add("$($step.Label)：$message")
+      Write-InstallerLog ("{0} 暂未补齐：{1}。安装器将继续检查其他项目。" -f $step.Label, $message) 'FAIL'
+    }
   }
   if (($Selected.Contains('musetalk') -or $Selected.Contains('openvoice')) -and -not (Get-CommandPath 'nvidia-smi.exe')) {
     Write-InstallerLog '未检测到可用 NVIDIA 驱动。本地实时数字人/口音模型可以安装，但不能标记为 CUDA 实时直播就绪；显卡驱动需按显卡型号从 NVIDIA 官方安装。' 'WARN'
   }
+  return $failures
 }
 
 function Install-VbCable {
@@ -651,10 +854,13 @@ try {
   }
   if ($Action -eq 'Repair') {
     New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
-    Repair-Dependencies $selected
+    $repairFailures = @(Repair-Dependencies $selected)
     Write-ProgressEvent 94 '正在复检补齐结果'
     $afterRepair = Get-EnvironmentReport
     Write-EnvironmentSummary $afterRepair
+    if ($repairFailures.Count) {
+      throw ("以下依赖暂未安装成功，其他成功项目已经保留；再次点击【一键补齐依赖】会继续：{0}" -f ($repairFailures -join '；'))
+    }
     Write-ProgressEvent 100 '缺失依赖补齐完成，可以安装所选组件'
     exit 0
   }
@@ -664,22 +870,45 @@ try {
   New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
   $projectRoot = Resolve-ProjectRoot
   $count = $selected.Count
+  $componentFailures = [System.Collections.Generic.List[string]]::new()
   for ($index = 0; $index -lt $count; $index++) {
     $id = $selected[$index]
     $percent = 8 + [int](84 * $index / [Math]::Max(1, $count))
     $label = ($manifest.components | Where-Object id -eq $id | Select-Object -First 1).name
-    Write-ProgressEvent $percent "正在安装：$label"
-    switch ($id) {
-      'core' { Install-Core $projectRoot }
-      'kokoro' { Install-Kokoro $projectRoot }
-      'gptsovits' { Install-GptSoVits $projectRoot }
-      'asr' { Install-Asr $projectRoot }
-      'musetalk' { Install-MuseTalk $projectRoot }
-      'openvoice' { Install-OpenVoice $projectRoot }
-      'obs' { Install-Obs }
-      'vbcable' { Install-VbCable }
-      'tikfinity' { Install-Tikfinity }
+    if (Test-ComponentReady $id $projectRoot) {
+      Write-ProgressEvent $percent "已安装，跳过重复处理：$label"
+      Set-ComponentInstallState $id 'READY' '复检通过，直接复用'
+      continue
     }
+    Write-ProgressEvent $percent "正在安装或继续：$label"
+    Set-ComponentInstallState $id 'INSTALLING'
+    try {
+      switch ($id) {
+        'core' { Install-Core $projectRoot }
+        'kokoro' { Install-Kokoro $projectRoot }
+        'gptsovits' { Install-GptSoVits $projectRoot }
+        'asr' { Install-Asr $projectRoot }
+        'musetalk' { Install-MuseTalk $projectRoot }
+        'openvoice' { Install-OpenVoice $projectRoot }
+        'obs' { Install-Obs }
+        'vbcable' { Install-VbCable }
+        'tikfinity' { Install-Tikfinity }
+      }
+      if (-not (Test-ComponentReady $id $projectRoot)) {
+        throw '安装命令已结束，但最终完整性检查仍未通过'
+      }
+      Set-ComponentInstallState $id 'READY' '安装与复检通过'
+    } catch {
+      $message = $_.Exception.Message
+      Set-ComponentInstallState $id 'FAILED' $message
+      $componentFailures.Add("${label}：$message")
+      Write-InstallerLog ("{0} 本轮未完成：{1}。已经下载的内容会保留，继续处理其他组件。" -f $label, $message) 'FAIL'
+    }
+  }
+
+  if ($componentFailures.Count) {
+    throw ("有 {0} 个组件暂未完成，其余成果均已保留。网络或权限恢复后再次点击安装即可继续：{1}" -f `
+      $componentFailures.Count, ($componentFailures -join '；'))
   }
 
   $installState = [ordered]@{

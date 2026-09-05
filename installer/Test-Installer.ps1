@@ -36,6 +36,7 @@ foreach ($relative in @(
   'MeihuaInstaller.bat',
   'MeihuaInstaller.ps1',
   'Install-MeihuaComponents.ps1',
+  'Test-DownloadRecovery.ps1',
   'overlays\musetalk\musetalk\utils\preprocessing.py',
   'overlays\musetalk\scripts\realtime_inference.py',
   'overlays\gptsovits-v3\api_v3.py',
@@ -78,7 +79,15 @@ Assert-Installer ($backendText -match 'function Repair-Dependencies') '存在缺
 Assert-Installer ($backendText -match 'python-3\.10\.11-amd64\.exe') '无 winget 时可从官方安装 Python 3.10'
 Assert-Installer ($backendText -match 'ffmpeg-release-essentials\.zip') '可自动安装 FFmpeg'
 Assert-Installer ($backendText -match 'vc_redist\.x64\.exe') '可自动安装 Microsoft VC++ 运行库'
+Assert-Installer ($backendText -match '--continue-at') '大文件下载支持断点续传'
+Assert-Installer ($backendText -match 'for \(\$attempt = 1; \$attempt -le 5') '下载中断后最多自动恢复五次'
+Assert-Installer ($backendText -match '已下载部分会保留') '下载失败时保留缓存'
+Assert-Installer ($backendText -match 'payload\\meihua-live-source\.zip') '支持内置源码载荷，无需登录私有 GitHub'
+Assert-Installer ($backendText -match 'Set-ComponentInstallState') '组件安装状态可持久化并继续'
+Assert-Installer ($backendText -match 'Test-ComponentReady') '重复安装前会复检并跳过已完成组件'
 Assert-Installer ($guiText -match 'x:Name="RepairButton"') '界面包含“一键补齐依赖”按钮'
+Assert-Installer ($guiText -match '\$exitCode -eq 0') '界面以真实退出码判断成功，不误判普通 stderr'
+Assert-Installer ($guiText -match '继续安装') '失败后界面明确提供继续安装'
 
 $oversized = @(Get-ChildItem -LiteralPath $installerRoot -Recurse -File | Where-Object Length -ge 95MB)
 Assert-Installer ($oversized.Count -eq 0) '安装器目录没有接近 GitHub 100 MB 限制的单文件'

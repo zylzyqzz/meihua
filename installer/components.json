@@ -1,9 +1,10 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "repository": {
     "url": "https://github.com/zylzyqzz/meihua.git",
     "branch": "main",
-    "private": true
+    "private": true,
+    "portableArchive": "payload/meihua-live-source.zip"
   },
   "defaults": {
     "components": ["core", "kokoro", "obs", "vbcable", "tikfinity"],

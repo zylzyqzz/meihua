@@ -219,15 +219,24 @@ function Complete-Backend {
   if (-not $script:activeProcess.HasExited) { return }
 
   $script:activeProcess.WaitForExit()
+  $script:activeProcess.Refresh()
   $completedAction = $script:activeAction
-  $succeeded = (-not $script:backendFailed) -and ($script:stderrLineCount -eq 0) -and ($progress.Value -ge 100)
+  # Native tools and Windows installers may emit harmless diagnostics on stderr.
+  # The backend exit code plus its explicit failure marker are authoritative.
+  $exitCode = $script:activeProcess.ExitCode
+  # Windows PowerShell 5 can expose a null ExitCode for a redirected child
+  # even after HasExited. The explicit marker and 100% completion remain
+  # mandatory, while a concrete non-zero exit code still fails the run.
+  $succeeded = ($null -eq $exitCode -or $exitCode -eq 0) -and (-not $script:backendFailed) -and ($progress.Value -ge 100)
   $script:pollTimer.Stop()
   Set-UiBusy $false
   if ($succeeded) {
     $progress.Value = 100
     $statusText.Text = if ($completedAction -eq 'Check') { '环境检查完成' } elseif ($completedAction -eq 'Repair') { '依赖补齐完成' } else { '组件安装完成' }
   } else {
-    $statusText.Text = '操作失败，请查看日志'
+    $statusText.Text = '本轮未完成，已保留下载；可继续'
+    if ($completedAction -eq 'Install') { $installButton.Content = '继续安装' }
+    elseif ($completedAction -eq 'Repair') { $repairButton.Content = '继续补齐依赖' }
     $script:autoCheckExitCode = 1
   }
   $script:activeProcess.Dispose()
@@ -271,7 +280,14 @@ function Start-Backend([string]$Action) {
   $script:backendFailed = $false
   $logBox.Clear()
   $progress.Value = 0
-  $statusText.Text = if ($Action -eq 'Check') { '正在检查环境' } elseif ($Action -eq 'Repair') { '正在补齐缺失依赖' } else { '正在准备安装组件' }
+  $hasPartialDownloads = [bool](Get-ChildItem -LiteralPath (Join-Path $target 'downloads') -Recurse -Filter '*.partial' -File -ErrorAction SilentlyContinue | Select-Object -First 1)
+  $statusText.Text = if ($Action -eq 'Check') {
+    '正在检查环境'
+  } elseif ($Action -eq 'Repair') {
+    if ($hasPartialDownloads) { '正在从已有缓存继续补齐依赖' } else { '正在补齐缺失依赖' }
+  } else {
+    if ($hasPartialDownloads) { '正在从已有缓存继续安装' } else { '正在准备安装组件' }
+  }
   Set-UiBusy $true
   try {
     $script:activeProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList ($arguments -join ' ') `
