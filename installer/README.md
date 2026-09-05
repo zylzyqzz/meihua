@@ -5,10 +5,13 @@
 1. 选择安装目录。
 2. 点击“检查环境”。
 3. 保留默认组件，或按需勾选声音克隆、ASR、MuseTalk、OpenVoice。
-4. 点击“开始安装”。
-5. 安装完成后，从项目根目录运行 `scripts/start-production.ps1`。
+4. 点击“一键补齐依赖”：只安装当前缺少的 Git、Node.js、pnpm、Python 3.10、FFmpeg、VC++ 运行库，以及所选 OBS、VB-CABLE、TikFinity。
+5. 点击“安装所选组件”：下载源码、Node/Python 依赖和所选模型并完成生产构建。
+6. 安装完成后，从项目根目录运行 `scripts/start-production.ps1`。
 
 默认安装的是主中控、Kokoro 英文女声、OBS、VB-CABLE 和 TikFinity。GPT-SoVITS、MuseTalk 与 OpenVoice 下载量大，因此保持可选。
+
+“检查环境”会按人能读懂的分组输出 Windows/磁盘、基础依赖、显卡与 CUDA、主中控构建、所有本地模型、直播软件和音频驱动。没有 winget 不会再阻断安装，安装器会改用软件官方安装包；NVIDIA 驱动和 CUDA 因显卡型号不同，只检测并给出明确说明，不盲目自动安装。
 
 ## 版本策略
 

@@ -90,10 +90,11 @@ $defaultRoot = Join-Path $defaultDrive $manifest.defaults.installFolder
     </Grid>
 
     <Grid Grid.Row="6">
-      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="10"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="10"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="10"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <Button x:Name="CheckButton" Width="118" Content="检查环境"/>
-      <Button x:Name="OpenButton" Grid.Column="2" Width="128" Content="打开安装目录"/>
-      <Button x:Name="InstallButton" Grid.Column="4" Width="150" Background="{StaticResource Primary}" Foreground="White" BorderBrush="{StaticResource Primary}" Content="开始安装"/>
+      <Button x:Name="RepairButton" Grid.Column="2" Width="148" Content="一键补齐依赖"/>
+      <Button x:Name="OpenButton" Grid.Column="4" Width="128" Content="打开安装目录"/>
+      <Button x:Name="InstallButton" Grid.Column="6" Width="150" Background="{StaticResource Primary}" Foreground="White" BorderBrush="{StaticResource Primary}" Content="安装所选组件"/>
     </Grid>
   </Grid>
 </Window>
@@ -108,6 +109,7 @@ $statusText = $window.FindName('StatusText')
 $progress = $window.FindName('Progress')
 $logBox = $window.FindName('LogBox')
 $checkButton = $window.FindName('CheckButton')
+$repairButton = $window.FindName('RepairButton')
 $installButton = $window.FindName('InstallButton')
 $openButton = $window.FindName('OpenButton')
 $browseButton = $window.FindName('BrowseButton')
@@ -187,6 +189,7 @@ Update-SelectionSummary
 
 function Set-UiBusy([bool]$Busy) {
   $checkButton.IsEnabled = -not $Busy
+  $repairButton.IsEnabled = -not $Busy
   $installButton.IsEnabled = -not $Busy
   $browseButton.IsEnabled = -not $Busy
   foreach ($check in $script:componentChecks.Values) {
@@ -222,7 +225,7 @@ function Complete-Backend {
   Set-UiBusy $false
   if ($succeeded) {
     $progress.Value = 100
-    $statusText.Text = if ($completedAction -eq 'Check') { '环境检查完成' } else { '安装完成' }
+    $statusText.Text = if ($completedAction -eq 'Check') { '环境检查完成' } elseif ($completedAction -eq 'Repair') { '依赖补齐完成' } else { '组件安装完成' }
   } else {
     $statusText.Text = '操作失败，请查看日志'
     $script:autoCheckExitCode = 1
@@ -257,7 +260,7 @@ function Start-Backend([string]$Action) {
     '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Quote-Argument $backend),
     '-Action', $Action, '-InstallRoot', (Quote-Argument $target)
   )
-  if ($Action -eq 'Install') { $arguments += @('-Components', (Quote-Argument ($selected -join ','))) }
+  if ($Action -in @('Install', 'Repair')) { $arguments += @('-Components', (Quote-Argument ($selected -join ','))) }
   $logsRoot = Join-Path $installerRoot 'logs'
   New-Item -ItemType Directory -Force -Path $logsRoot | Out-Null
   $runId = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
@@ -268,7 +271,7 @@ function Start-Backend([string]$Action) {
   $script:backendFailed = $false
   $logBox.Clear()
   $progress.Value = 0
-  $statusText.Text = if ($Action -eq 'Check') { '正在检查环境' } else { '正在准备安装' }
+  $statusText.Text = if ($Action -eq 'Check') { '正在检查环境' } elseif ($Action -eq 'Repair') { '正在补齐缺失依赖' } else { '正在准备安装组件' }
   Set-UiBusy $true
   try {
     $script:activeProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList ($arguments -join ' ') `
@@ -301,6 +304,14 @@ $checkButton.Add_Click({
   catch {
     Set-UiBusy $false
     $statusText.Text = '环境检查启动失败'
+    Add-LogLine ('错误：' + $_.Exception.Message)
+  }
+})
+$repairButton.Add_Click({
+  try { Start-Backend 'Repair' }
+  catch {
+    Set-UiBusy $false
+    $statusText.Text = '依赖修复启动失败'
     Add-LogLine ('错误：' + $_.Exception.Message)
   }
 })

@@ -71,6 +71,15 @@ foreach ($script in $syntaxScripts) {
   Assert-Installer ($errors.Count -eq 0) "PowerShell 语法正确：$(Split-Path -Leaf $script)"
 }
 
+$backendText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $installerRoot 'Install-MeihuaComponents.ps1')
+$guiText = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $installerRoot 'MeihuaInstaller.ps1')
+Assert-Installer ($backendText -match "ValidateSet\('Check', 'Repair', 'Install'\)") '后端支持检查、补依赖、安装三段流程'
+Assert-Installer ($backendText -match 'function Repair-Dependencies') '存在缺什么补什么的一键依赖修复逻辑'
+Assert-Installer ($backendText -match 'python-3\.10\.11-amd64\.exe') '无 winget 时可从官方安装 Python 3.10'
+Assert-Installer ($backendText -match 'ffmpeg-release-essentials\.zip') '可自动安装 FFmpeg'
+Assert-Installer ($backendText -match 'vc_redist\.x64\.exe') '可自动安装 Microsoft VC++ 运行库'
+Assert-Installer ($guiText -match 'x:Name="RepairButton"') '界面包含“一键补齐依赖”按钮'
+
 $oversized = @(Get-ChildItem -LiteralPath $installerRoot -Recurse -File | Where-Object Length -ge 95MB)
 Assert-Installer ($oversized.Count -eq 0) '安装器目录没有接近 GitHub 100 MB 限制的单文件'
 

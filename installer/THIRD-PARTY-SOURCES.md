@@ -9,7 +9,10 @@
 | GPT-SoVITS | `RVC-Boss/GPT-SoVITS` 标签 `20250228v3` | 是 | 克隆官方标签，再覆盖 `overlays/gptsovits-v3` |
 | MuseTalk | `TMElyralab/MuseTalk` 提交 `0a89dec45a0192b824e3cf4daf96c239440c5ed8` | 是 | 克隆官方提交，再覆盖 `overlays/musetalk` |
 | OpenVoice V2 | `myshell-ai/OpenVoice` | 服务适配层在主项目中 | 克隆官方源码，安装 MeloTTS，下载官方 V2 checkpoints |
-| OBS Studio | OBS Project | 否 | winget 官方软件包 |
+| Python 3.10 | Python Software Foundation | 否 | winget 或 Python 官方 3.10.11 x64 安装包 |
+| FFmpeg | FFmpeg Windows builds（gyan.dev，备用 BtbN Release） | 否 | 下载 Windows x64 压缩包并配置到安装目录 |
+| Microsoft VC++ Runtime | Microsoft | 否 | Microsoft 官方常青 x64 安装包 |
+| OBS Studio | OBS Project | 否 | winget；无 winget 时使用 OBS 官方 GitHub Release |
 | VB-CABLE | VB-Audio | 否 | 官方驱动包；安装时由 Windows 请求管理员确认 |
 | TikFinity | TikFinity 官方分发 | 否 | 官方安装程序；账号登录由用户完成 |
 
