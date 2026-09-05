@@ -82,17 +82,22 @@ function Quote-NativeArgument([string]$Value) {
 }
 
 function Invoke-ResumableCurlDownload([string]$Curl, [string]$Source, [string]$Partial) {
-  $runId = [Guid]::NewGuid().ToString('N')
-  $curlOut = Join-Path $logRoot "curl-$runId.out.log"
-  $curlErr = Join-Path $logRoot "curl-$runId.err.log"
   $arguments = @(
     '--location', '--fail', '--silent', '--show-error',
     '--connect-timeout', '20', '--speed-time', '120', '--speed-limit', '1024',
     '--continue-at', '-', '--output', $Partial, $Source
   )
   $argumentLine = ($arguments | ForEach-Object { Quote-NativeArgument ([string]$_) }) -join ' '
-  $process = Start-Process -FilePath $Curl -ArgumentList $argumentLine -WindowStyle Hidden -PassThru `
-    -RedirectStandardOutput $curlOut -RedirectStandardError $curlErr
+  $startInfo = New-Object Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $Curl
+  $startInfo.Arguments = $argumentLine
+  $startInfo.UseShellExecute = $false
+  $startInfo.CreateNoWindow = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+  $process = New-Object Diagnostics.Process
+  $process.StartInfo = $startInfo
+  if (-not $process.Start()) { throw '无法启动 curl 下载进程。' }
   $startedAt = Get-Date
   $lastReportAt = [DateTime]::MinValue
   try {
@@ -109,17 +114,15 @@ function Invoke-ResumableCurlDownload([string]$Curl, [string]$Source, [string]$P
       }
     }
     $process.WaitForExit()
-    $process.Refresh()
-    $rawDetail = if (Test-Path -LiteralPath $curlErr) { Get-Content -Raw -LiteralPath $curlErr -ErrorAction SilentlyContinue } else { '' }
-    $detail = if ($rawDetail) { ([string]$rawDetail).Trim() } else { '' }
+    $rawDetail = $process.StandardError.ReadToEnd()
+    $detail = if ($rawDetail) { $rawDetail.Trim() } else { '' }
     $exitCode = $process.ExitCode
-    if ($detail -or ($null -ne $exitCode -and $exitCode -ne 0)) {
+    if ($exitCode -ne 0) {
       if (-not $detail) { $detail = "curl 返回错误码 $exitCode" }
       throw $detail
     }
   } finally {
     $process.Dispose()
-    Remove-Item -LiteralPath $curlOut, $curlErr -Force -ErrorAction SilentlyContinue
   }
 }
 
