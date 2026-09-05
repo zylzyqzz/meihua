@@ -38,7 +38,11 @@ New-Item -ItemType Directory -Force -Path (Join-Path $stage 'logs'), (Join-Path 
 
 $sourceArchive = Join-Path $stage 'payload\meihua-live-source.zip'
 $git = Get-Command git.exe -ErrorAction Stop
-& $git.Source -C $projectRoot archive --format=zip --output=$sourceArchive HEAD
+# FFmpeg is installed and repaired independently. Keeping its 81 MB executable
+# inside the source payload would duplicate the same dependency and push the
+# portable source archive over GitHub's single-file limit.
+& $git.Source -C $projectRoot archive --format=zip --output=$sourceArchive HEAD -- . `
+  ':(exclude)tools/ffmpeg/ffmpeg.exe' ':(exclude)tools/ffmpeg/ffmpeg.exe.gz'
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sourceArchive)) { throw '无法生成内置主源码载荷。' }
 
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $stage 'Test-Installer.ps1')

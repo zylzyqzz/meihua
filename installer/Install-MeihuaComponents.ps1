@@ -911,13 +911,22 @@ try {
       $componentFailures.Count, ($componentFailures -join '；'))
   }
 
+  $sourceRevision = if (Test-Path -LiteralPath (Join-Path $projectRoot '.git')) {
+    $previousPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'Continue'
+      (& git -C $projectRoot rev-parse HEAD 2>$null | Select-Object -Last 1)
+    } finally { $ErrorActionPreference = $previousPreference }
+  } else {
+    'portable-source-' + ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $projectRoot 'package.json')).Hash.Substring(0, 12).ToLowerInvariant())
+  }
   $installState = [ordered]@{
     schemaVersion = 1
     installedAt = [DateTimeOffset]::Now.ToString('o')
     projectRoot = $projectRoot
     installRoot = $InstallRoot
     components = @($selected)
-    sourceRevision = (& git -C $projectRoot rev-parse HEAD 2>$null | Select-Object -Last 1)
+    sourceRevision = $sourceRevision
     manifest = $manifest.pinnedSources
   }
   $installState | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stateRoot 'installation.json') -Encoding UTF8
