@@ -535,6 +535,21 @@ function Test-ProjectSourceComplete([string]$Path) {
     (Test-Path -LiteralPath (Join-Path $Path 'scripts\start-production.ps1'))
 }
 
+function Copy-TreeOverlay([string]$Source, [string]$Destination) {
+  New-Item -ItemType Directory -Force -Path $Destination | Out-Null
+  $sourcePrefix = [IO.Path]::GetFullPath($Source).TrimEnd('\') + '\'
+  foreach ($item in Get-ChildItem -LiteralPath $Source -Recurse -Force) {
+    $relative = $item.FullName.Substring($sourcePrefix.Length)
+    $targetPath = Join-Path $Destination $relative
+    if ($item.PSIsContainer) {
+      New-Item -ItemType Directory -Force -Path $targetPath | Out-Null
+    } else {
+      New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetPath) | Out-Null
+      Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Force
+    }
+  }
+}
+
 function Expand-PortableProjectSource([string]$Archive, [string]$Target) {
   $staging = Join-Path $InstallRoot ('.source-staging-' + [Guid]::NewGuid().ToString('N'))
   New-Item -ItemType Directory -Force -Path $staging | Out-Null
@@ -551,9 +566,7 @@ function Expand-PortableProjectSource([string]$Archive, [string]$Target) {
     $mergeExisting = Test-ProjectSourceComplete $Target
     if ($mergeExisting) {
       Write-InstallerLog '检测到上一版已安装源码，正在覆盖更新程序文件；数据库、密钥和用户素材不会删除。'
-      foreach ($item in Get-ChildItem -LiteralPath $sourceRoot -Force) {
-        Copy-Item -LiteralPath $item.FullName -Destination (Join-Path $Target $item.Name) -Recurse -Force
-      }
+      Copy-TreeOverlay $sourceRoot $Target
     } else {
       if (Test-Path -LiteralPath $Target) {
         $backup = "$Target.incomplete-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
