@@ -85,6 +85,7 @@ Assert-Installer ($backendText -match '已下载部分会保留') '下载失败�
 Assert-Installer ($backendText -match 'payload\\meihua-live-source\.zip') '支持内置源码载荷，无需登录私有 GitHub'
 Assert-Installer ($backendText -match 'Set-ComponentInstallState') '组件安装状态可持久化并继续'
 Assert-Installer ($backendText -match 'Test-ComponentReady') '重复安装前会复检并跳过已完成组件'
+Assert-Installer ($backendText -match 'import kokoro_onnx,soundfile,fastapi,uvicorn,pydantic') 'Kokoro 安装后会验证完整服务端依赖'
 Assert-Installer ($guiText -match 'x:Name="RepairButton"') '界面包含“一键补齐依赖”按钮'
 Assert-Installer ($guiText -match '\$exitCode -eq 0') '界面以真实退出码判断成功，不误判普通 stderr'
 Assert-Installer ($guiText -match '继续安装') '失败后界面明确提供继续安装'

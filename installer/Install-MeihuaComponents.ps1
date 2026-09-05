@@ -397,6 +397,17 @@ function Test-TikfinityInstalled {
   return Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'Programs\tikfinity\TikFinity.exe')
 }
 
+function Test-PythonImports([string]$Python, [string]$Imports) {
+  if (-not $Python -or -not (Test-Path -LiteralPath $Python)) { return $false }
+  $previousPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & $Python -c $Imports 2>$null
+    return $LASTEXITCODE -eq 0
+  } catch { return $false }
+  finally { $ErrorActionPreference = $previousPreference }
+}
+
 function Get-EnvironmentReport {
   $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
   $driveName = [IO.Path]::GetPathRoot($InstallRoot).TrimEnd('\').TrimEnd(':')
@@ -633,7 +644,7 @@ function Install-Kokoro([string]$ProjectRoot) {
   $models = Join-Path $serviceRoot 'models'
   Save-Download $manifest.pinnedSources.kokoroModelUrl (Join-Path $models 'kokoro-v1.0.onnx') $manifest.pinnedSources.kokoroModelSha256
   Save-Download $manifest.pinnedSources.kokoroVoicesUrl (Join-Path $models 'voices-v1.0.bin') $manifest.pinnedSources.kokoroVoicesSha256
-  Invoke-Checked $venvPython @('-c', 'import kokoro_onnx,soundfile')
+  Invoke-Checked $venvPython @('-c', 'import kokoro_onnx,soundfile,fastapi,uvicorn,pydantic')
   Write-InstallerLog 'Kokoro 英文女声已安装并通过导入校验' 'OK'
 }
 
@@ -747,9 +758,13 @@ function Test-ComponentReady([string]$Id, [string]$ProjectRoot) {
     }
     'kokoro' {
       $root = Join-Path $ProjectRoot 'services\kokoro-tts'
-      return (Test-Path -LiteralPath (Join-Path $root '.venv\Scripts\python.exe')) -and `
+      $venvPython = Join-Path $root '.venv\Scripts\python.exe'
+      return (Test-Path -LiteralPath $venvPython) -and `
         (Test-Path -LiteralPath (Join-Path $root 'models\kokoro-v1.0.onnx')) -and `
-        (Test-Path -LiteralPath (Join-Path $root 'models\voices-v1.0.bin'))
+        (Test-Path -LiteralPath (Join-Path $root 'models\voices-v1.0.bin')) -and `
+        ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root 'models\kokoro-v1.0.onnx')).Hash -eq $manifest.pinnedSources.kokoroModelSha256) -and `
+        ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $root 'models\voices-v1.0.bin')).Hash -eq $manifest.pinnedSources.kokoroVoicesSha256) -and `
+        (Test-PythonImports $venvPython 'import kokoro_onnx,soundfile,fastapi,uvicorn,pydantic')
     }
     'gptsovits' {
       $root = Join-Path $ProjectRoot 'external\gptsovits-v3'

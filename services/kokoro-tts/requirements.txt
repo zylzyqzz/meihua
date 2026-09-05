@@ -1,2 +1,5 @@
 kokoro-onnx==0.6.1
 soundfile>=0.14.0
+fastapi>=0.115,<1
+uvicorn>=0.34,<1
+pydantic>=2.10,<3
